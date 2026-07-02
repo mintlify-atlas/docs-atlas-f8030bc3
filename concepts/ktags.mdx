@@ -1,0 +1,161 @@
+---
+title: "Ktags: Physical NFC Tags for iOS Focus Sessions"
+sidebarTitle: "Ktags"
+description: "How Klariti's physical NFC tags work — Ed25519-signed payloads, iOS focus session locking, tag types, and the issuance and ownership model."
+---
+
+Ktags are physical NFC tags issued by Klariti that gate focus sessions on iOS. There is no software bypass — you must tap the physical tag to start a session and tap the same tag again to end it. Any other tag is rejected. The friction is the feature: making it physically inconvenient to stop forces a deliberate decision rather than an impulsive one.
+
+## The Ktag interface
+
+```typescript
+interface Ktag {
+  tag_id: string              // server-generated Klariti tag ID, prefixed with kt_
+  uid_hash?: string           // hash of the physical tag UID / IDm
+  payload: string             // full URL written to the NFC tag: https://klariti.so/tag/<message>
+  signature?: string          // server-generated signature over issued tag data
+  sig_version?: number        // signature / key version
+  status: "active" | "revoked"
+  owner_id?: string | null    // nullable: tag may exist in inventory before assignment
+  label?: string
+  tag_type?: "WALL" | "MOBILE" | "DESK"
+  created_at: Date
+  revoked_at?: Date
+}
+```
+
+## Tag types
+
+Ktags come in three physical form factors:
+
+| Type | Intended placement |
+|---|---|
+| `WALL` | Mounted in a fixed location — doorframe, desk corner, wall |
+| `DESK` | Small tag kept at a workstation |
+| `MOBILE` | Portable tag, carried or kept in a bag |
+
+The type affects how Klariti presents and labels the tag in the UI, but the iOS session flow is identical regardless of form factor.
+
+## The NFC payload format
+
+Every Ktag stores a signed URL in this format:
+
+```
+https://klariti.so/tag/v<sig_version>.<tag_id>.<signature>
+```
+
+For example:
+
+```
+https://klariti.so/tag/v1.kt_7f3a2b1c.MEUCIQDx...
+```
+
+The `<message>` portion of the URL — everything after `/tag/` — is the opaque token the API uses to resolve and verify the tag. Parsing it requires no client-side secrets; verification uses an Ed25519 public key bundled into the iOS app.
+
+### What each field binds
+
+| Field | Purpose |
+|---|---|
+| `tag_id` | Server-generated ID, always prefixed `kt_` |
+| `uid_hash` | Binds the record to the physical NFC chip's hardware UID without exposing the raw UID in API responses |
+| `signature` | Ed25519 signature over `v<sig_version>\|<tag_id>\|<uid_hash>`, enables offline verification |
+| `sig_version` | Key version used when signing, allows key rotation without re-provisioning all tags |
+| `payload` | The exact full URL written to the NFC tag |
+
+<Note>
+  `uid_hash` has a unique constraint in the database. Two different physical tags cannot produce the same hash, preventing duplicate registration of a single chip.
+</Note>
+
+## Tag status
+
+| Status | Meaning |
+|---|---|
+| `active` | Tag is valid and can be used to start and end focus sessions |
+| `revoked` | Tag has been decommissioned; the iOS app rejects it |
+
+When a tag is revoked, `revoked_at` is stamped server-side automatically. Reactivating a tag (setting `status` back to `active`) clears `revoked_at`.
+
+## Ownership and inventory
+
+`owner_id` is nullable. Tags can exist in inventory before they are assigned to a user. The `ON DELETE SET NULL` constraint means that if an owning user is deleted, the tag returns to unassigned inventory rather than being lost.
+
+## Issuance: what happens at registration
+
+Tag registration goes through `POST /api/admin/ktags`. The admin client submits only two fields:
+
+```json
+{
+  "uid": "<raw NFC chip UID read from the physical tag>",
+  "tag_type": "WALL"
+}
+```
+
+The server then:
+1. Normalizes and hashes the raw UID to produce `uid_hash`
+2. Generates a new `tag_id` with the `kt_` prefix
+3. Signs `v<sig_version>|<tag_id>|<uid_hash>` with the server's Ed25519 private key
+4. Constructs the full payload URL: `https://klariti.so/tag/v<sig_version>.<tag_id>.<signature>`
+5. Generates a friendly two-word label (e.g. `silver-moth`)
+6. Writes the complete record to the database
+
+The raw UID is never stored. Only the hash is persisted.
+
+## Mutable vs. immutable fields
+
+Admin users can patch a tag via `PATCH /api/admin/ktags/:tag_id`. The patchable fields are intentionally limited:
+
+| Field | Patchable | Notes |
+|---|---|---|
+| `status` | ✅ | `active` or `revoked`; `revoked_at` is managed automatically |
+| `label` | ✅ | Can be set to `null` to clear |
+| `tag_type` | ✅ | Change the physical form factor classification |
+| `owner_id` | ✅ | Set to a user ID to assign, or `null` to return to inventory |
+| `uid_hash` | ❌ | Server-managed; tied to the physical chip |
+| `payload` | ❌ | Server-managed; changing would invalidate the tag URL |
+| `signature` | ❌ | Server-managed; cryptographic integrity |
+| `sig_version` | ❌ | Server-managed; key versioning |
+
+## Public tag resolution
+
+When someone taps a Ktag with any NFC-capable device, the phone opens the payload URL in a browser. The API resolves and verifies the tag:
+
+```
+GET /api/tag/:message
+```
+
+This endpoint parses the signed message from the URL, verifies it matches a real issued tag, and returns public-facing details:
+
+```typescript
+interface PublicTag {
+  tag_id: string
+  tag_name: string
+  owner_name: string | null
+  status: "active" | "revoked"
+}
+```
+
+## iOS focus session flow
+
+The session flow in the Klariti iOS app uses the tag as a physical key:
+
+<CardGroup cols={2}>
+  <Card title="1. Start focus" icon="lock">
+    Tap **Start Focus** in the app, then scan a Ktag. The app reads the NFC hardware UID, verifies it against the issued tag record, and locks the session to that specific physical tag. Selected apps are blocked via Screen Time (FamilyControls).
+  </Card>
+  <Card title="2. End focus" icon="lock-open">
+    Scan the **same** tag to end the session. The app compares the scanned UID against the locked tag. Any different tag — including another valid Ktag — is rejected. The session stays locked until the correct tag is presented.
+  </Card>
+</CardGroup>
+
+<Warning>
+  The session is locked to the specific physical chip, not just the tag ID. Reading the NFC hardware identifier via Core NFC is what enforces this — a digital copy of the payload URL cannot unlock the session.
+</Warning>
+
+## Verification model
+
+The Ed25519 signature supports two verification paths:
+
+| Context | How verification works |
+|---|---|
+| **Web** | The payload URL routes to `klariti.so/tag/<message>`, where the API verifies the signature server-side and renders the public tag page |
+| **iOS** | The app reads the actual NFC hardware UID via Core NFC, reconstructs the signed message, and verifies locally using a bundled Ed25519 public key — no network round-trip required |

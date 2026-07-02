@@ -1,0 +1,186 @@
+---
+title: "Friendship Data Models — Klariti API Reference"
+sidebarTitle: "Friendship"
+description: "Describes the Friendship, FriendRequest, and user relationship models returned by the Klariti friends API endpoints."
+---
+
+Friend relationships in Klariti use a two-table model: a canonical `Friendship` row that persists across friend and unfriend cycles, and a `FriendRequest` row for every individual request that serves as a directional audit log. This separation means the re-add flow works cleanly — re-sending a request reactivates the existing friendship row rather than creating a duplicate.
+
+## Friendship
+
+The canonical relationship between two users. One row exists per unique pair and is never deleted — unfriending sets `status` to `"removed"` (soft-delete).
+
+<ResponseField name="id" type="string" required>
+  UUID. Uniquely identifies the friendship record.
+</ResponseField>
+
+<ResponseField name="user_a_id" type="string" required>
+  ID of the user who is lexicographically smaller. The `user_a_id < user_b_id` ordering is enforced at the application layer to guarantee that every pair maps to exactly one row.
+</ResponseField>
+
+<ResponseField name="user_b_id" type="string" required>
+  ID of the user who is lexicographically larger.
+</ResponseField>
+
+<ResponseField name="status" type='"active" | "removed"' required>
+  Current state of the friendship. `"active"` means the two users are friends. `"removed"` means the friendship has been ended by one party; the row is retained for the re-add flow.
+</ResponseField>
+
+<ResponseField name="created_at" type="string | null">
+  ISO 8601 datetime. Server-stamped when the friendship row is first created.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string | null">
+  ISO 8601 datetime. Server-stamped on every status change (including reactivation).
+</ResponseField>
+
+```ts
+// Canonical relationship. user_a_id < user_b_id enforced at application layer.
+// Unique constraint on (user_a_id, user_b_id). Persists via soft-delete.
+interface Friendship {
+  id: string
+  user_a_id: string
+  user_b_id: string
+  status: "active" | "removed"
+  created_at: string | null
+  updated_at: string | null
+}
+```
+
+<Note>
+  The database enforces a unique constraint on `(user_a_id, user_b_id)`. Because the smaller ID is always placed in `user_a_id`, no bidirectional duplicate rows can exist. When a previously unfriended pair reconnects, the existing row's `status` is flipped back to `"active"` via `ON CONFLICT DO UPDATE` — a new row is never inserted.
+</Note>
+
+---
+
+## FriendRequest
+
+A single directional friend request. Unlike the `Friendship` table, multiple request rows between the same pair are allowed over time — each accepted, declined, withdrawn, or re-sent request produces its own row.
+
+<ResponseField name="id" type="string" required>
+  UUID. Uniquely identifies the request.
+</ResponseField>
+
+<ResponseField name="from_id" type="string" required>
+  User ID of the sender.
+</ResponseField>
+
+<ResponseField name="to_id" type="string" required>
+  User ID of the recipient.
+</ResponseField>
+
+<ResponseField name="status" type='"pending" | "accepted" | "declined" | "withdrawn"' required>
+  Current state of the request.
+
+  <Expandable title="Status values">
+    <ResponseField name="pending" type="string">
+      The request has been sent and is awaiting a response from the recipient.
+    </ResponseField>
+    <ResponseField name="accepted" type="string">
+      The recipient accepted the request; the corresponding `Friendship` row was created or reactivated.
+    </ResponseField>
+    <ResponseField name="declined" type="string">
+      The recipient explicitly declined the request.
+    </ResponseField>
+    <ResponseField name="withdrawn" type="string">
+      The sender retracted the request before the recipient responded.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="created_at" type="string | null">
+  ISO 8601 datetime. Server-stamped when the request is sent.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string | null">
+  ISO 8601 datetime. Server-stamped on every status transition.
+</ResponseField>
+
+```ts
+// One row per request. Directional. Multiple requests between the same pair are allowed.
+interface FriendRequest {
+  id: string
+  from_id: string
+  to_id: string
+  status: "pending" | "accepted" | "declined" | "withdrawn"
+  created_at: string | null
+  updated_at: string | null
+}
+```
+
+---
+
+## User with relationship context
+
+Returned by `GET /api/users` (user search). Each result includes the calling user's current relationship to that user so the client can render the correct action button without a separate lookup.
+
+<ResponseField name="id" type="string" required>
+  The found user's ID.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  The found user's display name.
+</ResponseField>
+
+<ResponseField name="email" type="string" required>
+  The found user's email address.
+</ResponseField>
+
+<ResponseField name="image" type="string | null">
+  Avatar URL, if the user has one set.
+</ResponseField>
+
+<ResponseField name="createdAt" type="string" required>
+  ISO 8601 datetime. When the found user's account was created.
+</ResponseField>
+
+<ResponseField name="relationship" type='"friend" | "pending_sent" | "pending_received" | "none"' required>
+  The calling user's relationship to this result.
+
+  <Expandable title="Relationship values">
+    <ResponseField name="friend" type="string">
+      An active friendship exists between the two users.
+    </ResponseField>
+    <ResponseField name="pending_sent" type="string">
+      The calling user has sent a friend request that is still pending.
+    </ResponseField>
+    <ResponseField name="pending_received" type="string">
+      This user has sent the calling user a friend request that is still pending.
+    </ResponseField>
+    <ResponseField name="none" type="string">
+      No current relationship or outstanding request.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="request_id" type="string | null">
+  UUID of the relevant `FriendRequest` row when `relationship` is `"pending_sent"` or `"pending_received"`. `null` otherwise.
+</ResponseField>
+
+<ResponseField name="friendship_id" type="string | null">
+  UUID of the `Friendship` row when `relationship` is `"friend"`. `null` otherwise.
+</ResponseField>
+
+---
+
+## Design notes
+
+### Two-table model
+
+The `friendships` table holds one canonical row per unique user pair that persists for the lifetime of the product. The `friend_requests` table is an append-only audit log of every individual request sent between any pair, regardless of outcome.
+
+This separation means the re-add flow is handled correctly by default: when a previously unfriended user sends a new request and it is accepted, the existing `friendships` row is reactivated (`ON CONFLICT DO UPDATE`) while a brand-new `friend_requests` row is appended. No data is lost, and no duplicate friendship rows are ever created.
+
+### Duplicate prevention
+
+The unique constraint on `(user_a_id, user_b_id)` in the `friendships` table, combined with the `user_a_id < user_b_id` ordering enforced at the application layer, guarantees that exactly one row exists per pair regardless of who initiates the friendship.
+
+For friend requests, a new request can only be sent if no `"pending"` request from the same sender to the same recipient already exists. Withdrawn requests do not block re-sending.
+
+### Privacy masking for declined requests
+
+The sender's view of their own sent requests masks `"declined"` as `"pending"`. This prevents senders from inferring that a recipient has explicitly rejected them. The `"withdrawn"` status is returned as-is because the sender initiated that transition themselves and already knows about it.
+
+<Tip>
+  Receivers always see the true `"declined"` status on their received-requests endpoint. Only the sender's view is masked.
+</Tip>

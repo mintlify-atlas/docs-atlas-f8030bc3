@@ -1,0 +1,124 @@
+{
+  "projectType": "saas",
+  "projectName": "Klariti",
+  "projectDescription": "Klariti is an antisocial social platform that uses social mechanics — challenges, streaks, and peer accountability — to help users spend less time online through NFC-gated focus sessions, a Gray Engine content mediator, and a shared challenges system.",
+  "theme": "willow",
+  "primaryColor": "#040404",
+  "lightColor": null,
+  "darkColor": "#040404",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Overview",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/intents-and-challenges",
+              "concepts/gray-engine",
+              "concepts/ktags",
+              "concepts/friends"
+            ]
+          },
+          {
+            "group": "Platforms",
+            "pages": [
+              "platforms/web-dashboard",
+              "platforms/browser-extension",
+              "platforms/ios-app"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/users",
+              "api/challenges",
+              "api/friends",
+              "api/ktags",
+              "api/classify"
+            ]
+          },
+          {
+            "group": "Data Models",
+            "pages": [
+              "api/models/challenge",
+              "api/models/friendship",
+              "api/models/ktag"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Intents & Challenges — goal-oriented focus sessions with social accountability and configurable pause thresholds",
+    "Gray Engine — context-aware content mediation that modifies webpages based on current focus goal",
+    "Ktags — physical NFC tags that gate iOS focus sessions with no software bypass",
+    "Friends & Accountability — bilateral friendship model with challenge invitations and participation tracking",
+    "Browser Extension — real-time page modification via the Gray Engine based on active intent",
+    "iOS companion app — NFC-gated Screen Time blocking via FamilyControls, no VPN required",
+    "TypeScript monorepo — Turborepo with Fastify API, Next.js dashboard, MV3 extension, and SwiftUI iOS app",
+    "Typed API client — ts-rest contracts shared between server and all client surfaces"
+  ],
+  "publicApiSurface": [
+    "POST /api/sign-up",
+    "POST /api/sign-in",
+    "GET /api/users",
+    "GET /api/users/me",
+    "PATCH /api/users/me",
+    "POST /api/challenges",
+    "GET /api/challenges",
+    "GET /api/challenges/:challengeId",
+    "PATCH /api/challenges/:challengeId",
+    "DELETE /api/challenges/:challengeId",
+    "POST /api/challenges/:challengeId/join",
+    "POST /api/challenges/:challengeId/leave",
+    "GET /api/challenges/:challengeId/participants",
+    "PATCH /api/challenges/:challengeId/status",
+    "POST /api/challenges/:challengeId/invitations",
+    "GET /api/challenges/:challengeId/invitations",
+    "GET /api/users/me/challenges/invitations",
+    "POST /api/challenges/invitations/:invitationId/accept",
+    "POST /api/challenges/invitations/:invitationId/decline",
+    "POST /api/challenges/invitations/:invitationId/cancel",
+    "GET /api/me/friends",
+    "POST /api/me/friends/requests",
+    "PATCH /api/me/friends/requests/:requestId",
+    "DELETE /api/me/friends/requests/:requestId",
+    "DELETE /api/me/friends/:friendshipId",
+    "GET /api/me/ktags",
+    "PATCH /api/me/ktags/label/:tag_id",
+    "POST /api/admin/ktag/register",
+    "GET /api/admin/ktags",
+    "PATCH /api/admin/ktags/:tag_id",
+    "DELETE /api/admin/ktags/:tag_id",
+    "GET /api/tag/:message",
+    "POST /api/classify",
+    "createApiClient({ baseUrl })",
+    "@klariti/api/contracts",
+    "@klariti/api/client",
+    "@klariti/auth/server",
+    "@klariti/auth/client",
+    "classifyUrl(url: string)"
+  ]
+}

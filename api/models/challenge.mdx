@@ -1,0 +1,221 @@
+---
+title: "Challenge Data Models — Klariti API Reference"
+sidebarTitle: "Challenge"
+description: "Describes the Challenge, ChallengeParticipant, ChallengeWithStatus, and ChallengeInvitation data models returned by the Klariti API."
+---
+
+Challenges are the core collaborative entity in Klariti. A solo focus intent and a group challenge share an identical data shape — the distinction is purely a UX framing. The models below describe how challenges, their participants, and invitations are represented in API responses.
+
+## Challenge
+
+Represents a single challenge record. Challenges default to `private` visibility and `active` status on creation.
+
+<ResponseField name="id" type="string" required>
+  UUID. Uniquely identifies the challenge.
+</ResponseField>
+
+<ResponseField name="creator_id" type="string" required>
+  ID of the user who created the challenge.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Display name of the challenge. Maximum 255 characters.
+</ResponseField>
+
+<ResponseField name="goal" type='"FOCUS" | "WORK" | "STUDY" | "CASUAL"' required>
+  The focus category this challenge is oriented around.
+</ResponseField>
+
+<ResponseField name="visibility" type='"public" | "private"' required>
+  Access model for the challenge. Defaults to `"private"`. Public challenges can be viewed and joined by any authenticated user who knows the challenge ID; private challenges require an invitation.
+</ResponseField>
+
+<ResponseField name="status" type='"active" | "paused" | "completed"' required>
+  Lifecycle state of the challenge itself — distinct from any individual participant's status. See the [Status design note](#challenge-status-vs-participant-status) below.
+</ResponseField>
+
+<ResponseField name="ends_at" type="string | null">
+  ISO 8601 datetime. When set, the challenge is time-bound. `null` means open-ended (no deadline). A solo intent is modelled as a challenge with one participant and `ends_at: null`.
+</ResponseField>
+
+<ResponseField name="pause_threshold" type="number | null">
+  A fraction in the range `0.0–1.0`. When set, the challenge automatically transitions to `"paused"` once this fraction of participants choose to pause. `null` disables the group pause mechanic.
+</ResponseField>
+
+<ResponseField name="created_at" type="string | null">
+  ISO 8601 datetime. Server-stamped when the challenge row is created.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string | null">
+  ISO 8601 datetime. Server-stamped on every mutation.
+</ResponseField>
+
+```ts
+interface Challenge {
+  id: string
+  creator_id: string
+  name: string
+  goal: "FOCUS" | "WORK" | "STUDY" | "CASUAL"
+  visibility: "public" | "private"
+  status: "active" | "paused" | "completed"
+  ends_at: string | null
+  pause_threshold: number | null
+  created_at: string | null
+  updated_at: string | null
+}
+```
+
+---
+
+## ChallengeParticipant
+
+Represents one user's membership record within a challenge. The composite primary key `(challenge_id, user_id)` enforces that a user can join a given challenge only once.
+
+<ResponseField name="challenge_id" type="string" required>
+  UUID of the challenge this record belongs to.
+</ResponseField>
+
+<ResponseField name="user_id" type="string" required>
+  ID of the participating user.
+</ResponseField>
+
+<ResponseField name="status" type='"active" | "paused" | "completed"' required>
+  The participant's individual state within the challenge. Independent of the challenge-level `status` field — a participant can be `"paused"` inside an `"active"` challenge.
+</ResponseField>
+
+<ResponseField name="joined_at" type="string | null">
+  ISO 8601 datetime. Set when the user formally joins. May be `null` for participants added at challenge creation before the join flow completes.
+</ResponseField>
+
+<ResponseField name="created_at" type="string | null">
+  ISO 8601 datetime. Server-stamped when the participant row is inserted.
+</ResponseField>
+
+```ts
+interface ChallengeParticipant {
+  challenge_id: string
+  user_id: string
+  status: "active" | "paused" | "completed"
+  joined_at: string | null
+  created_at: string | null
+}
+```
+
+---
+
+## ChallengeWithStatus
+
+Extends the base `Challenge` object with the authenticated user's own participation context. Returned by `GET /api/users/me/challenges`.
+
+<ResponseField name="id" type="string" required>
+  UUID. Inherits all base `Challenge` fields.
+</ResponseField>
+
+<ResponseField name="creator_name" type="string" required>
+  Display name of the user who created the challenge.
+</ResponseField>
+
+<ResponseField name="participant_status" type='"active" | "paused" | "completed"' required>
+  The calling user's individual participant status within this challenge.
+</ResponseField>
+
+<ResponseField name="joined_at" type="string | null">
+  ISO 8601 datetime. When the calling user joined the challenge.
+</ResponseField>
+
+<Note>
+  `ChallengeWithStatus` includes every field from `Challenge` in addition to the three fields above. The `participant_status` field reflects the calling user's row in `challenge_participants` — it is never the same value as the top-level challenge `status` field, which describes the challenge lifecycle.
+</Note>
+
+```ts
+interface ChallengeWithStatus extends Challenge {
+  creator_name: string
+  participant_status: "active" | "paused" | "completed"
+  joined_at: string | null
+}
+```
+
+---
+
+## ChallengeInvitation
+
+Represents a single invitation sent to a user to join a challenge. Each invitation is a distinct row — multiple invitations between the same pair for the same challenge are allowed as long as none are currently `"pending"`.
+
+<ResponseField name="id" type="string" required>
+  UUID. Uniquely identifies the invitation.
+</ResponseField>
+
+<ResponseField name="challenge_id" type="string" required>
+  UUID of the challenge the invitation is for.
+</ResponseField>
+
+<ResponseField name="from_id" type="string" required>
+  User ID of the inviter.
+</ResponseField>
+
+<ResponseField name="to_id" type="string" required>
+  User ID of the invitee.
+</ResponseField>
+
+<ResponseField name="status" type='"pending" | "accepted" | "declined" | "withdrawn" | "ignored"' required>
+  Current state of the invitation.
+
+  <Expandable title="Status values">
+    <ResponseField name="pending" type="string">
+      The invitee has not yet responded.
+    </ResponseField>
+    <ResponseField name="accepted" type="string">
+      The invitee accepted; a `ChallengeParticipant` row was created.
+    </ResponseField>
+    <ResponseField name="declined" type="string">
+      The invitee explicitly declined.
+    </ResponseField>
+    <ResponseField name="withdrawn" type="string">
+      The inviter retracted the invitation before the invitee responded.
+    </ResponseField>
+    <ResponseField name="ignored" type="string">
+      The invitee dismissed the invitation without accepting or declining.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="created_at" type="string | null">
+  ISO 8601 datetime. Server-stamped when the invitation is created.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string | null">
+  ISO 8601 datetime. Server-stamped on every status change.
+</ResponseField>
+
+```ts
+interface ChallengeInvitation {
+  id: string
+  challenge_id: string
+  from_id: string
+  to_id: string
+  status: "pending" | "accepted" | "declined" | "withdrawn" | "ignored"
+  created_at: string | null
+  updated_at: string | null
+}
+```
+
+---
+
+## Design notes
+
+### Intents and challenges share one data shape
+
+A solo "intent" — a personal focus goal with no collaborators — is stored as a `Challenge` with one participant and no deadline (`ends_at: null`). There is no separate intent entity or endpoint. The distinction is entirely a UI framing choice.
+
+### Challenge status vs participant status
+
+`Challenge.status` describes the lifecycle of the challenge as a whole (`active`, `paused`, `completed`). `ChallengeParticipant.status` describes one user's individual state inside that challenge. The two fields use the same enum values but are completely independent:
+
+- A challenge can be `"active"` while an individual participant is `"paused"`.
+- The `pause_threshold` mechanic can flip the challenge to `"paused"` when enough participants choose to pause, but each participant row retains its own `status` value.
+
+Keeping them separate prevents conflation in search results, UI rendering, and automation logic.
+
+### Visibility defaults to private
+
+Every challenge is created with `visibility: "private"` unless the creator explicitly passes `"public"`. Private challenges are accessible only to participants and invited users; they never appear in discovery or public search results.

@@ -1,0 +1,314 @@
+---
+title: "Klariti User Endpoints — Profiles & Search"
+sidebarTitle: "Users"
+description: "Search users, read and update your profile, change your email address, and change your password using the Klariti Users API."
+---
+
+All user endpoints require a valid Bearer token in the `Authorization` header. The search endpoint excludes the authenticated caller from results and enriches each result with a live friendship `relationship` field.
+
+<Note>
+  Interactive docs for every route are also served from `GET /docs` on your running API instance.
+</Note>
+
+---
+
+## GET /api/users
+
+Search users by name or email. Results are filtered case-insensitively and **never include the requesting user**. Each result carries a `relationship` field that reflects the current friendship state between the caller and that user.
+
+**Auth:** Bearer token required.
+
+### Query parameters
+
+<ParamField query="q" type="string">
+  Search term matched case-insensitively against user name and email. Omit to return an unfiltered list.
+</ParamField>
+
+### Response — `200 OK`
+
+Returns an array of user search results.
+
+<ResponseField name="id" type="string" required>
+  Unique user ID.
+</ResponseField>
+<ResponseField name="name" type="string" required>
+  Display name.
+</ResponseField>
+<ResponseField name="email" type="string" required>
+  Email address.
+</ResponseField>
+<ResponseField name="image" type="string | null">
+  Avatar URL, or `null` if not set.
+</ResponseField>
+<ResponseField name="createdAt" type="string" required>
+  ISO 8601 timestamp of account creation.
+</ResponseField>
+<ResponseField name="relationship" type="string" required>
+  Friendship state relative to the authenticated caller. One of `friend`, `pending_sent`, `pending_received`, or `none`.
+</ResponseField>
+<ResponseField name="request_id" type="string | null" required>
+  UUID of the active friend request, or `null` when no request is in flight.
+</ResponseField>
+<ResponseField name="friendship_id" type="string | null" required>
+  UUID of the accepted friendship record, or `null` if not friends.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/users?q=ada" \
+  -H "Authorization: Bearer <token>"
+```
+
+```json
+[
+  {
+    "id": "user_01j2k...",
+    "name": "Ada Lovelace",
+    "email": "ada@example.com",
+    "image": "https://example.com/avatar.png",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "relationship": "pending_sent",
+    "request_id": "a1b2c3d4-...",
+    "friendship_id": null
+  }
+]
+```
+
+---
+
+## GET /api/users/me
+
+Return the full profile of the currently authenticated user.
+
+**Auth:** Bearer token required.
+
+### Response — `200 OK`
+
+<ResponseField name="id" type="string" required>
+  Unique user ID.
+</ResponseField>
+<ResponseField name="email" type="string" required>
+  Current email address.
+</ResponseField>
+<ResponseField name="name" type="string" required>
+  Display name.
+</ResponseField>
+<ResponseField name="image" type="string | null">
+  Avatar URL, or `null`.
+</ResponseField>
+<ResponseField name="emailVerified" type="boolean" required>
+  Whether the email address has been verified.
+</ResponseField>
+<ResponseField name="createdAt" type="string" required>
+  ISO 8601 account creation timestamp.
+</ResponseField>
+<ResponseField name="updatedAt" type="string" required>
+  ISO 8601 last-updated timestamp.
+</ResponseField>
+<ResponseField name="role" type="string | null">
+  Role assigned to the account (e.g. `admin`), or `null`.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/users/me" \
+  -H "Authorization: Bearer <token>"
+```
+
+```json
+{
+  "id": "user_01j2k...",
+  "email": "ada@example.com",
+  "name": "Ada Lovelace",
+  "image": null,
+  "emailVerified": true,
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-06-01T00:00:00.000Z",
+  "role": null
+}
+```
+
+---
+
+## PATCH /api/users/me
+
+Update the authenticated user's display name or avatar image. Both fields are optional — send only the fields you want to change.
+
+**Auth:** Bearer token required.
+
+### Request body
+
+<ParamField body="name" type="string">
+  New display name. Minimum 1 character.
+</ParamField>
+<ParamField body="image" type="string | null">
+  New avatar URL. Pass `null` to remove the current avatar.
+</ParamField>
+
+### Response — `200 OK`
+
+Returns the updated user object. Shape is identical to `GET /api/users/me`.
+
+### Example
+
+```bash
+curl -X PATCH "https://api.klariti.com/api/users/me" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Ada", "image": null}'
+```
+
+```json
+{
+  "id": "user_01j2k...",
+  "email": "ada@example.com",
+  "name": "Ada",
+  "image": null,
+  "emailVerified": true,
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-06-14T12:00:00.000Z",
+  "role": null
+}
+```
+
+---
+
+## POST /api/users/me/change-email
+
+Initiate an email address change. The user will receive a verification message at the new address. An optional `callbackURL` can be included to redirect after verification.
+
+**Auth:** Bearer token required.
+
+### Request body
+
+<ParamField body="newEmail" type="string" required>
+  The email address to change to.
+</ParamField>
+<ParamField body="callbackURL" type="string">
+  URL to redirect the user to after they verify the new address.
+</ParamField>
+
+### Response — `200 OK`
+
+Returns a confirmation object from the auth layer.
+
+### Example
+
+```bash
+curl -X POST "https://api.klariti.com/api/users/me/change-email" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "newEmail": "new@example.com",
+    "callbackURL": "https://app.klariti.com/settings"
+  }'
+```
+
+---
+
+## POST /api/users/me/change-password
+
+Change the authenticated user's password. The current password must be supplied for verification. Optionally revoke all other active sessions on success.
+
+**Auth:** Bearer token required.
+
+### Request body
+
+<ParamField body="currentPassword" type="string" required>
+  The user's current password, used to confirm identity.
+</ParamField>
+<ParamField body="newPassword" type="string" required>
+  The new password to set.
+</ParamField>
+<ParamField body="revokeOtherSessions" type="boolean">
+  When `true`, all sessions other than the current one are invalidated immediately after the password change.
+</ParamField>
+
+### Response — `200 OK`
+
+Returns a confirmation object from the auth layer.
+
+### Example
+
+```bash
+curl -X POST "https://api.klariti.com/api/users/me/change-password" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "currentPassword": "hunter2",
+    "newPassword": "correct-horse-battery-staple",
+    "revokeOtherSessions": true
+  }'
+```
+
+---
+
+## GET /api/users/me/challenges
+
+Return challenges associated with the currently authenticated user. Filter by `role` to separate challenges the user created from challenges they participate in.
+
+**Auth:** Bearer token required.
+
+### Query parameters
+
+<ParamField query="role" type="string">
+  `creator` returns only challenges created by the user. `participant` returns all challenges the user belongs to, including ones they created.
+</ParamField>
+
+### Response — `200 OK`
+
+Returns an array of challenges enriched with the user's participation data.
+
+<ResponseField name="id" type="string" required>UUID of the challenge.</ResponseField>
+<ResponseField name="creator_id" type="string" required>ID of the user who created the challenge.</ResponseField>
+<ResponseField name="creator_name" type="string" required>Display name of the creator.</ResponseField>
+<ResponseField name="name" type="string" required>Challenge name.</ResponseField>
+<ResponseField name="goal" type="string" required>Activity goal: `FOCUS`, `WORK`, `STUDY`, or `CASUAL`.</ResponseField>
+<ResponseField name="visibility" type="string" required>`public` or `private`.</ResponseField>
+<ResponseField name="status" type="string" required>Challenge status: `active`, `paused`, or `completed`.</ResponseField>
+<ResponseField name="participant_status" type="string" required>The authenticated user's participation status: `active`, `paused`, or `completed`.</ResponseField>
+<ResponseField name="joined_at" type="string | null" required>ISO 8601 timestamp when the user joined, or `null`.</ResponseField>
+<ResponseField name="ends_at" type="string | null" required>ISO 8601 expiry timestamp, or `null` for open-ended challenges.</ResponseField>
+<ResponseField name="pause_threshold" type="number | null" required>Max number of allowed pauses, or `null` for unlimited.</ResponseField>
+<ResponseField name="created_at" type="string | null" required>ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="updated_at" type="string | null" required>ISO 8601 last-updated timestamp.</ResponseField>
+
+### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/users/me/challenges?role=participant" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+## GET /api/users/:userId/challenges
+
+Return the public challenges of another user. Only public challenges are returned regardless of the `role` filter — private challenges belonging to another user are never exposed.
+
+**Auth:** Bearer token required.
+
+### Path parameters
+
+<ParamField path="userId" type="string" required>
+  The ID of the user whose challenges to retrieve.
+</ParamField>
+
+### Query parameters
+
+<ParamField query="role" type="string">
+  `creator` returns challenges created by the user. `participant` returns all challenges they belong to. Both are limited to public visibility.
+</ParamField>
+
+### Response — `200 OK`
+
+Same shape as `GET /api/users/me/challenges`.
+
+### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/users/user_01j2k.../challenges?role=creator" \
+  -H "Authorization: Bearer <token>"
+```

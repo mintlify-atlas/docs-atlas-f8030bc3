@@ -1,0 +1,273 @@
+---
+title: "Klariti API Authentication: Sign Up & Sign In"
+sidebarTitle: "Authentication"
+description: "Create an account or sign in with email and password, receive a bearer token, and attach it to every protected Klariti API request."
+---
+
+Authentication in Klariti is powered by [Better Auth](https://better-auth.com) with the `bearer` plugin enabled. This means the API supports both cookie-based sessions (for the web dashboard) and stateless bearer tokens (for the iOS app, browser extension, and direct API calls). The two endpoints below are the only public routes — every other route requires a valid token.
+
+## Public Auth Routes
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/sign-up` | Create a new account |
+| `POST` | `/api/sign-in` | Sign in with email and password |
+
+Both endpoints return the same `{ token, user }` shape on success.
+
+---
+
+## POST /api/sign-up
+
+Create a new Klariti account using email and password. On success the response includes a bearer token ready to use immediately — no separate sign-in step needed.
+
+### Request body
+
+<ParamField body="name" type="string" required>
+  Display name for the new account. Must be at least 1 character.
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Valid email address. Used as the login identifier.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Account password. Must be at least 1 character.
+</ParamField>
+
+<ParamField body="image" type="string">
+  URL of the user's avatar image. Optional.
+</ParamField>
+
+<ParamField body="callbackURL" type="string">
+  URL to redirect to after sign-up completes. Optional. Used by the web dashboard's OAuth flow.
+</ParamField>
+
+<ParamField body="rememberMe" type="boolean">
+  When `true`, the session is extended beyond the default expiry. Optional.
+</ParamField>
+
+### Example request
+
+```bash
+curl -X POST http://localhost:4200/api/sign-up \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Ada Lovelace",
+    "email": "ada@example.com",
+    "password": "password",
+    "image": "https://example.com/avatar.png",
+    "callbackURL": "https://example.com",
+    "rememberMe": true
+  }'
+```
+
+### Example response
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "user_01HXYZ",
+    "email": "ada@example.com",
+    "name": "Ada Lovelace",
+    "image": "https://example.com/avatar.png",
+    "emailVerified": false,
+    "createdAt": "2026-06-14T00:00:00.000Z",
+    "updatedAt": "2026-06-14T00:00:00.000Z",
+    "role": null
+  }
+}
+```
+
+### Error responses
+
+| Status | Condition |
+|---|---|
+| `400` | Missing required fields or sign-up failed |
+| `422` | Semantic validation error (e.g. email already taken) |
+
+---
+
+## POST /api/sign-in
+
+Sign in with an existing email and password. Returns a fresh bearer token on success.
+
+### Request body
+
+<ParamField body="email" type="string" required>
+  Email address registered to the account.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Account password.
+</ParamField>
+
+<ParamField body="callbackURL" type="string">
+  URL to redirect to after sign-in completes. Optional.
+</ParamField>
+
+<ParamField body="rememberMe" type="boolean">
+  When `true`, the session is extended beyond the default expiry. Optional.
+</ParamField>
+
+### Example request
+
+```bash
+curl -X POST http://localhost:4200/api/sign-in \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "ada@example.com",
+    "password": "password",
+    "callbackURL": "https://example.com",
+    "rememberMe": true
+  }'
+```
+
+### Example response
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "user_01HXYZ",
+    "email": "ada@example.com",
+    "name": "Ada Lovelace",
+    "image": null,
+    "emailVerified": false,
+    "createdAt": "2026-06-14T00:00:00.000Z",
+    "updatedAt": "2026-06-14T00:00:00.000Z",
+    "role": null
+  }
+}
+```
+
+### Error responses
+
+| Status | Condition |
+|---|---|
+| `400` | Malformed request body |
+| `401` | Invalid email or password |
+| `403` | Account access forbidden |
+
+---
+
+## Response Fields
+
+Both `POST /api/sign-up` and `POST /api/sign-in` return the same `{ token, user }` shape:
+
+<ResponseField name="token" type="string | null">
+  Bearer token to attach to subsequent requests. May be `null` if the auth provider did not issue a token for this session type (for example, a pure cookie-only flow).
+</ResponseField>
+
+<ResponseField name="user" type="object">
+  The authenticated user record.
+
+  <Expandable title="user fields">
+    <ResponseField name="user.id" type="string">
+      Unique user identifier.
+    </ResponseField>
+
+    <ResponseField name="user.email" type="string">
+      The user's email address.
+    </ResponseField>
+
+    <ResponseField name="user.name" type="string">
+      The user's display name.
+    </ResponseField>
+
+    <ResponseField name="user.image" type="string | null">
+      Avatar image URL, or `null` if not set.
+    </ResponseField>
+
+    <ResponseField name="user.emailVerified" type="boolean">
+      Whether the user's email address has been verified.
+    </ResponseField>
+
+    <ResponseField name="user.createdAt" type="string">
+      ISO 8601 timestamp of account creation.
+    </ResponseField>
+
+    <ResponseField name="user.updatedAt" type="string">
+      ISO 8601 timestamp of the most recent profile update.
+    </ResponseField>
+
+    <ResponseField name="user.role" type="string | null">
+      User role (e.g. `"admin"`). `null` for standard accounts.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Using the Token
+
+Pass the `token` value from the sign-in or sign-up response as a bearer token in the `Authorization` header on every protected request:
+
+```http
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Example — call a protected endpoint
+
+```bash
+curl http://localhost:4200/api/users/me \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### TypeScript client
+
+When using `@klariti/api/client`, pass the token in `baseHeaders` at construction time:
+
+```ts
+import { createApiClient } from '@klariti/api/client';
+
+// 1. Sign in to get the token
+const anonApi = createApiClient({ baseUrl: 'http://localhost:4200' });
+const { body } = await anonApi.auth.signIn({
+  body: { email: 'ada@example.com', password: 'password' },
+});
+
+// 2. Build an authenticated client
+const api = createApiClient({
+  baseUrl: 'http://localhost:4200',
+  baseHeaders: {
+    Authorization: `Bearer ${body.token}`,
+  },
+});
+
+// 3. Call protected routes
+const me = await api.users.getMe();
+```
+
+<Warning>
+  Store tokens securely. In a browser context, avoid `localStorage` for sensitive tokens; prefer `httpOnly` cookies or in-memory storage. The web dashboard uses cookie-based sessions automatically via the `credentials: "include"` default in `createApiClient`.
+</Warning>
+
+---
+
+## Hidden Support Routes
+
+The following routes exist but are intentionally hidden from the Swagger UI documentation:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET`, `POST` | `/api/auth/*` | Better Auth passthrough — handles social OAuth, session management, email verification, and other Better Auth internals |
+| `POST` | `/api/docs/oauth/token` | Swagger UI password-flow token endpoint |
+
+### Swagger UI password flow
+
+When you click **Authorize** in `/docs`, Swagger UI posts your credentials to `/api/docs/oauth/token` using the OAuth 2.0 password grant. The endpoint signs you in via Better Auth and returns a standard OAuth token response:
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "Bearer"
+}
+```
+
+Swagger then attaches `Authorization: Bearer <access_token>` to every subsequent request for the duration of your session. You do not need to call this endpoint directly — it exists solely for Swagger UI integration.
+
+<Note>
+  The `username` field in Swagger's Authorize dialog maps to your email address, not a separate username. This is a quirk of the OAuth 2.0 password grant spec that Swagger UI follows.
+</Note>

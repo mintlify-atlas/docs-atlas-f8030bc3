@@ -1,0 +1,143 @@
+---
+title: "Klariti Architecture: Monorepo, API, and Auth"
+sidebarTitle: "Architecture"
+description: "How the Klariti monorepo is structured across Turborepo workspaces, the domain-module API layout, auth package split exports, and Vercel deployment constraints."
+---
+
+Klariti is a Turborepo monorepo with pnpm workspaces. This page covers the top-level directory layout, how the Fastify API is organised into domain modules, how the auth package splits server and client exports, and what you need to know to deploy the API to Vercel.
+
+## Monorepo layout
+
+The workspace root defines three workspace globs in `pnpm-workspace.yaml`: `apps/*`, `packages/*`, and `api`. All workspace packages use the `@klariti/*` prefix, with the sole exception of `@repo/typescript-config`.
+
+```
+klariti-os/
+├── apps/
+│   ├── web/          # Next.js dashboard            (@klariti/web)
+│   ├── extension/    # MV3 browser extension         (@klariti/xt)
+│   └── ios/          # SwiftUI iOS companion app
+│
+├── api/              # Fastify API server             (@klariti/api, port 4200)
+│   └── src/
+│       ├── server.ts
+│       ├── config.ts
+│       ├── api.contract.ts
+│       ├── client.ts
+│       ├── modules/
+│       │   ├── auth/
+│       │   ├── users/
+│       │   ├── challenges/
+│       │   ├── friends/
+│       │   ├── ktags/
+│       │   └── classify/
+│       └── plugins/
+│           ├── auth.ts
+│           ├── authorization.ts
+│           ├── cors.ts
+│           └── swagger.ts
+│
+└── packages/
+    ├── database/     # Drizzle ORM schema + pg client (@klariti/database)
+    ├── auth/         # Better Auth server/client      (@klariti/auth)
+    ├── api-client/   # Typed fetch client for the API
+    ├── url-class/    # URL → category classifier      (@klariti/url-class)
+    ├── ui/           # Shared UI components           (@klariti/ui)
+    ├── eslint-config/
+    └── typescript-config/                             (@repo/typescript-config)
+```
+
+Turborepo's task pipeline is defined in `turbo.json`. The `build` task declares `dependsOn: ["^build"]` so packages always build before the apps that consume them. The `dev` task is `persistent: true` with no cache, keeping all watchers alive in parallel.
+
+## API structure
+
+The Fastify server lives in `api/src/server.ts`. On startup it registers plugins in order — `formbody`, `swagger`, `cors`, `auth`, `authorization` — then registers each domain router. Interactive Swagger docs are available at `GET /docs`.
+
+### Plugin registration order
+
+```
+formbody  →  swagger  →  cors  →  auth  →  authorization  →  routes
+```
+
+Auth is provided by Better Auth with a Drizzle adapter. The bearer plugin is also registered, enabling token-based authentication for the iOS app and browser extension without requiring a cookie session.
+
+### Domain module layout
+
+The API is organised by domain rather than by technical layer. Each domain module under `api/src/modules/<domain>/` owns all of its related concerns:
+
+```
+api/src/modules/ktags/
+  contract.ts     # ts-rest contract slice for this domain
+  schemas.ts      # Zod schemas for request/response validation
+  router.ts       # Fastify route registration + session/admin guards
+  service.ts      # Orchestration and domain rules
+  repository.ts   # Database queries via Drizzle
+```
+
+Guards (session, admin) are applied once at the feature boundary in `router.ts`, not repeated per-route. `service.ts` is only used when the domain has real orchestration beyond a direct route-to-repository call.
+
+### Client-safe exports
+
+Consumer packages import the shared API surface from `@klariti/api`, not from a separate contracts workspace:
+
+| Export | Contents |
+|---|---|
+| `@klariti/api/contracts` | ts-rest contracts and shared Zod schema types |
+| `@klariti/api/client` | `createApiClient(baseUrl)` factory function |
+
+These exports are intentionally limited to client-safe files. Web and extension code can import the contract surface without pulling in Fastify, Better Auth server wiring, or Drizzle.
+
+## Auth package
+
+`@klariti/auth` uses split package exports to keep server-only code out of client bundles:
+
+<CardGroup cols={2}>
+  <Card title="@klariti/auth/server" icon="server">
+    `auth` — the configured Better Auth instance
+
+    `toNodeHandler` — adapter for Fastify's Node.js request/response
+
+    `Session` — the server-side session type
+  </Card>
+  <Card title="@klariti/auth/client" icon="browser">
+    `authClient` — pre-configured client instance
+
+    `signIn`, `signUp`, `signOut` — auth action helpers
+
+    `useSession` — React hook for session state
+  </Card>
+</CardGroup>
+
+Import from the correct subpath. Importing `@klariti/auth/server` in a client bundle will pull in Better Auth's server dependencies and likely break the build.
+
+## Vercel deployment
+
+The `klariti-api` Vercel project uses the **Fastify framework preset** with `api/` set as the root directory.
+
+<Note>
+  **Do not export the Fastify instance from `api/src/server.ts`.** Shapes like `export const server = ...` or `export default server` caused the Vercel runtime to break after the April 5, 2026 refactor — even though builds passed green. Symptoms included `Invalid export found in module`, `TypeError: fastify.register...`, and `504 INTERNAL_FUNCTION_INVOCATION_TIMEOUT` on every request.
+
+  The working pattern is:
+  1. Create the Fastify instance inside `server.ts`
+  2. Register all plugins and routes there
+  3. Call `server.listen(...)` inside an `init()` function
+  4. **Do not export the instance**
+
+  If Vercel starts returning 504s on `/` despite a green build, check `api/src/server.ts` for any named or default export of the server instance before debugging routes or database calls.
+</Note>
+
+## Testing
+
+Integration tests use Vitest with Fastify's `app.inject()` API — no real HTTP server is started. Key testing conventions:
+
+| Convention | Detail |
+|---|---|
+| **Runner** | Vitest |
+| **Parallelism** | `fileParallelism: false` — test files run sequentially to avoid database contention |
+| **Test users** | Identified by email pattern `%@test.klariti.dev` |
+| **Cleanup** | `afterAll` performs a cascade delete on test users, cleaning up all owned rows |
+
+Run the full API test suite:
+
+```bash
+pnpm --filter @klariti/api test
+```

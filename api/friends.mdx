@@ -1,0 +1,321 @@
+---
+title: "Klariti Friends Endpoints — Requests & Management"
+sidebarTitle: "Friends"
+description: "List friends, send and respond to friend requests, withdraw pending requests, and remove friendships using the Klariti Friends API."
+---
+
+All friends endpoints are protected and require a valid Bearer token in the `Authorization` header. Every route operates in the context of the authenticated user — there is no way to read or modify another user's friend list directly.
+
+<Note>
+  The sent-requests list shows declined requests as `pending` to avoid exposing rejection to the sender. Withdrawn requests are shown as-is since the sender initiated the withdrawal.
+</Note>
+
+---
+
+## Supported values
+
+| Field | Allowed values |
+|---|---|
+| Request `status` | `pending` \| `accepted` \| `declined` \| `cancelled` \| `withdrawn` |
+| Request `action` | `accept` \| `decline` |
+
+---
+
+## GET /api/me/friends
+
+Return a list of all active friendships for the authenticated user.
+
+**Auth:** Bearer token required.
+
+### Response — `200 OK`
+
+Returns an array of friend objects.
+
+<ResponseField name="friendship_id" type="string" required>
+  UUID of the friendship record. Use this ID when calling `DELETE /api/me/friends/:friendshipId`.
+</ResponseField>
+<ResponseField name="id" type="string" required>
+  The friend's user ID.
+</ResponseField>
+<ResponseField name="name" type="string" required>
+  The friend's display name.
+</ResponseField>
+<ResponseField name="email" type="string" required>
+  The friend's email address.
+</ResponseField>
+<ResponseField name="image" type="string | null">
+  The friend's avatar URL, or `null`.
+</ResponseField>
+<ResponseField name="createdAt" type="string" required>
+  ISO 8601 timestamp of the friend's account creation.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/me/friends" \
+  -H "Authorization: Bearer <token>"
+```
+
+```json
+[
+  {
+    "friendship_id": "a1b2c3d4-...",
+    "id": "user_01j2k...",
+    "name": "Ada Lovelace",
+    "email": "ada@example.com",
+    "image": null,
+    "createdAt": "2026-01-01T00:00:00.000Z"
+  }
+]
+```
+
+---
+
+## GET /api/me/friends/requests/sent
+
+List friend requests the authenticated user has sent. Declined requests are masked and returned with `status: "pending"` to avoid exposing rejection to the sender. Withdrawn requests are returned with their actual `withdrawn` status.
+
+**Auth:** Bearer token required.
+
+### Response — `200 OK`
+
+Returns an array of sent-request objects enriched with the addressee's profile.
+
+<ResponseField name="request_id" type="string" required>
+  UUID of the friend request record.
+</ResponseField>
+<ResponseField name="status" type="string" required>
+  Request status as visible to the sender: `pending` or `withdrawn`. Declined requests appear as `pending`.
+</ResponseField>
+<ResponseField name="id" type="string" required>
+  The addressee's user ID.
+</ResponseField>
+<ResponseField name="name" type="string" required>
+  The addressee's display name.
+</ResponseField>
+<ResponseField name="email" type="string" required>
+  The addressee's email address.
+</ResponseField>
+<ResponseField name="image" type="string | null">
+  The addressee's avatar URL, or `null`.
+</ResponseField>
+<ResponseField name="createdAt" type="string" required>
+  ISO 8601 timestamp of the addressee's account creation.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/me/friends/requests/sent" \
+  -H "Authorization: Bearer <token>"
+```
+
+```json
+[
+  {
+    "request_id": "b2c3d4e5-...",
+    "status": "pending",
+    "id": "user_02k3l...",
+    "name": "Charles Babbage",
+    "email": "charles@example.com",
+    "image": null,
+    "createdAt": "2026-02-01T00:00:00.000Z"
+  }
+]
+```
+
+---
+
+## GET /api/me/friends/requests/received
+
+List friend requests received by the authenticated user. This endpoint is filtered to **pending** requests only — accepted, declined, and other terminal statuses are excluded.
+
+**Auth:** Bearer token required.
+
+### Response — `200 OK`
+
+Returns an array of received-request objects enriched with the requester's profile.
+
+<ResponseField name="request_id" type="string" required>
+  UUID of the friend request record. Pass this to `PATCH /api/me/friends/requests/:requestId` to respond.
+</ResponseField>
+<ResponseField name="status" type="string" required>
+  Always `pending` for results returned by this endpoint.
+</ResponseField>
+<ResponseField name="id" type="string" required>
+  The requester's user ID.
+</ResponseField>
+<ResponseField name="name" type="string" required>
+  The requester's display name.
+</ResponseField>
+<ResponseField name="email" type="string" required>
+  The requester's email address.
+</ResponseField>
+<ResponseField name="image" type="string | null">
+  The requester's avatar URL, or `null`.
+</ResponseField>
+<ResponseField name="createdAt" type="string" required>
+  ISO 8601 timestamp of the requester's account creation.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/me/friends/requests/received" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+## POST /api/me/friends/requests
+
+Send a friend request to another user by their ID.
+
+**Auth:** Bearer token required.
+
+### Request body
+
+<ParamField body="addressee_id" type="string" required>
+  User ID of the person to send the request to.
+</ParamField>
+
+### Response — `200 OK`
+
+<ResponseField name="id" type="string" required>
+  UUID of the new friend request record.
+</ResponseField>
+<ResponseField name="from_id" type="string" required>
+  User ID of the sender (the authenticated user).
+</ResponseField>
+<ResponseField name="to_id" type="string" required>
+  User ID of the addressee.
+</ResponseField>
+<ResponseField name="status" type="string" required>
+  Always `pending` on creation.
+</ResponseField>
+<ResponseField name="created_at" type="string | null" required>
+  ISO 8601 creation timestamp.
+</ResponseField>
+<ResponseField name="updated_at" type="string | null" required>
+  ISO 8601 last-updated timestamp.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X POST "https://api.klariti.com/api/me/friends/requests" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"addressee_id": "user_02k3l..."}'
+```
+
+```json
+{
+  "id": "b2c3d4e5-...",
+  "from_id": "user_01j2k...",
+  "to_id": "user_02k3l...",
+  "status": "pending",
+  "created_at": "2026-06-14T09:00:00.000Z",
+  "updated_at": "2026-06-14T09:00:00.000Z"
+}
+```
+
+---
+
+## PATCH /api/me/friends/requests/:requestId
+
+Accept or decline a received friend request. The authenticated user must be the addressee of the request.
+
+**Auth:** Bearer token required.
+
+### Path parameters
+
+<ParamField path="requestId" type="string" required>
+  UUID of the friend request to respond to.
+</ParamField>
+
+### Request body
+
+<ParamField body="action" type="string" required>
+  Response action: `"accept"` or `"decline"`.
+</ParamField>
+
+### Response — `200 OK`
+
+Returns the updated friend request record.
+
+<ResponseField name="id" type="string" required>UUID of the friend request.</ResponseField>
+<ResponseField name="from_id" type="string" required>Sender's user ID.</ResponseField>
+<ResponseField name="to_id" type="string" required>Addressee's user ID.</ResponseField>
+<ResponseField name="status" type="string" required>`accepted` or `declined` following the action.</ResponseField>
+<ResponseField name="created_at" type="string | null" required>ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="updated_at" type="string | null" required>ISO 8601 last-updated timestamp.</ResponseField>
+
+### Example
+
+```bash
+curl -X PATCH "https://api.klariti.com/api/me/friends/requests/b2c3d4e5-..." \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"action": "accept"}'
+```
+
+---
+
+## DELETE /api/me/friends/requests/:requestId
+
+Withdraw a pending friend request that the authenticated user sent. The request transitions to `withdrawn` status.
+
+**Auth:** Bearer token required.
+
+### Path parameters
+
+<ParamField path="requestId" type="string" required>
+  UUID of the sent friend request to withdraw.
+</ParamField>
+
+### Response — `200 OK`
+
+Returns the updated friend request record with `status: "withdrawn"`.
+
+<ResponseField name="id" type="string" required>UUID of the friend request.</ResponseField>
+<ResponseField name="from_id" type="string" required>Sender's user ID (the authenticated user).</ResponseField>
+<ResponseField name="to_id" type="string" required>Addressee's user ID.</ResponseField>
+<ResponseField name="status" type="string" required>Always `withdrawn` after this call.</ResponseField>
+<ResponseField name="created_at" type="string | null" required>ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="updated_at" type="string | null" required>ISO 8601 last-updated timestamp.</ResponseField>
+
+### Example
+
+```bash
+curl -X DELETE "https://api.klariti.com/api/me/friends/requests/b2c3d4e5-..." \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+## DELETE /api/me/friends/:friendshipId
+
+Remove an active friendship. Both users lose the `friend` relationship immediately. The `friendshipId` is available from `GET /api/me/friends` or from the `friendship_id` field in user search results.
+
+**Auth:** Bearer token required.
+
+### Path parameters
+
+<ParamField path="friendshipId" type="string" required>
+  UUID of the friendship record to remove.
+</ParamField>
+
+### Response — `200 OK`
+
+```json
+{ "success": true }
+```
+
+### Example
+
+```bash
+curl -X DELETE "https://api.klariti.com/api/me/friends/a1b2c3d4-..." \
+  -H "Authorization: Bearer <token>"
+```

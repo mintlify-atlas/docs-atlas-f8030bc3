@@ -1,0 +1,378 @@
+---
+title: "Klariti KTag Endpoints — NFC Tag Management"
+sidebarTitle: "KTags"
+description: "Register, list, update, and delete physical NFC KTags via user and admin routes, and resolve tags from public NFC URL message payloads."
+---
+
+KTag endpoints are split into three groups based on required permissions. User routes require a Bearer token. Admin routes require a Bearer token **and** an `admin` role. The public tag resolution route requires no authentication.
+
+<Note>
+  Server-managed fields — `uid_hash`, `payload`, `signature`, and `sig_version` — are never client-patchable. Attempting to include them in a PATCH body will be rejected.
+</Note>
+
+---
+
+## Supported values
+
+| Field | Allowed values |
+|---|---|
+| `tag_type` | `WALL` \| `MOBILE` \| `DESK` |
+| `status` | `active` \| `revoked` |
+
+<Tip>
+  Patching `status` to `"active"` automatically clears the `revoked_at` timestamp. Patching to `"revoked"` automatically stamps it.
+</Tip>
+
+---
+
+## KTag object
+
+Every KTag response shares the following shape:
+
+<ResponseField name="tag_id" type="string" required>
+  Unique tag identifier with a `kt_` prefix.
+</ResponseField>
+<ResponseField name="uid_hash" type="string | null" required>
+  Hashed NFC UID. Managed server-side; never returned in full.
+</ResponseField>
+<ResponseField name="payload" type="string" required>
+  NFC message payload. Generated server-side on registration.
+</ResponseField>
+<ResponseField name="signature" type="string | null" required>
+  Cryptographic signature over the payload. Managed server-side.
+</ResponseField>
+<ResponseField name="sig_version" type="number | null" required>
+  Signature algorithm version. Managed server-side.
+</ResponseField>
+<ResponseField name="status" type="string" required>
+  Current tag status: `active` or `revoked`.
+</ResponseField>
+<ResponseField name="owner_id" type="string | null" required>
+  User ID of the tag owner, or `null` if unassigned.
+</ResponseField>
+<ResponseField name="label" type="string | null" required>
+  Human-readable label for the tag, or `null`.
+</ResponseField>
+<ResponseField name="tag_type" type="string | null" required>
+  Physical tag type: `WALL`, `MOBILE`, or `DESK`, or `null`.
+</ResponseField>
+<ResponseField name="created_at" type="string | null" required>
+  ISO 8601 creation timestamp.
+</ResponseField>
+<ResponseField name="revoked_at" type="string | null" required>
+  ISO 8601 revocation timestamp, or `null` if the tag is active.
+</ResponseField>
+
+---
+
+## User Routes
+
+### GET /api/me/ktags
+
+List all KTags owned by the authenticated user.
+
+**Auth:** Bearer token required.
+
+#### Response — `200 OK`
+
+Returns an array of KTag objects.
+
+#### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/me/ktags" \
+  -H "Authorization: Bearer <token>"
+```
+
+```json
+[
+  {
+    "tag_id": "kt_01abc...",
+    "uid_hash": null,
+    "payload": "https://k.klariti.com/t/kt_01abc...",
+    "signature": null,
+    "sig_version": null,
+    "status": "active",
+    "owner_id": "user_01j2k...",
+    "label": "Desk tag",
+    "tag_type": "DESK",
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "revoked_at": null
+  }
+]
+```
+
+---
+
+### PATCH /api/me/ktags/label/:tag_id
+
+Update the human-readable label on one of the authenticated user's own KTags. Pass `null` to clear the label.
+
+**Auth:** Bearer token required.
+
+#### Path parameters
+
+<ParamField path="tag_id" type="string" required>
+  The `kt_`-prefixed tag ID to update.
+</ParamField>
+
+#### Request body
+
+<ParamField body="label" type="string | null" required>
+  New label string, or `null` to remove the existing label.
+</ParamField>
+
+#### Response — `200 OK`
+
+Returns the updated KTag object.
+
+#### Example
+
+```bash
+curl -X PATCH "https://api.klariti.com/api/me/ktags/label/kt_01abc..." \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"label": "Desk tag"}'
+```
+
+```bash
+# Clear the label
+curl -X PATCH "https://api.klariti.com/api/me/ktags/label/kt_01abc..." \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"label": null}'
+```
+
+---
+
+## Admin Routes
+
+<Warning>
+  All routes in this section require the authenticated user to have the `admin` role. Non-admin requests receive a `403 Forbidden` response.
+</Warning>
+
+### POST /api/admin/ktag/register
+
+Register a new physical NFC tag in the system. The API generates the `payload`, `uid_hash`, and cryptographic signature from the raw `uid`. Returns `409 Conflict` if a tag with the same UID is already registered.
+
+**Auth:** Bearer token + admin role required.
+
+#### Request body
+
+<ParamField body="uid" type="string" required>
+  Raw NFC UID read from the physical tag. Minimum 1 character.
+</ParamField>
+<ParamField body="tag_type" type="string" required>
+  Physical tag form factor: `WALL`, `MOBILE`, or `DESK`.
+</ParamField>
+
+#### Response — `201 Created`
+
+Returns the newly registered KTag object.
+
+#### Example
+
+```bash
+curl -X POST "https://api.klariti.com/api/admin/ktag/register" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "uid": "04:AB:CD:EF:12:34:56",
+    "tag_type": "DESK"
+  }'
+```
+
+---
+
+### GET /api/admin/ktags
+
+List all KTags in the system. Optionally filter by owner to return only tags assigned to a specific user.
+
+**Auth:** Bearer token + admin role required.
+
+#### Query parameters
+
+<ParamField query="owner_id" type="string">
+  Filter to tags owned by this user ID.
+</ParamField>
+
+#### Response — `200 OK`
+
+Returns an array of KTag objects.
+
+#### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/admin/ktags?owner_id=user_01j2k..." \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+### GET /api/admin/ktag/uid/:uid
+
+Look up a KTag by its raw NFC UID. Returns `404 Not Found` if no tag with that UID is registered.
+
+**Auth:** Bearer token + admin role required.
+
+#### Path parameters
+
+<ParamField path="uid" type="string" required>
+  Raw NFC UID of the tag to look up.
+</ParamField>
+
+#### Response — `200 OK`
+
+Returns the matching KTag object.
+
+#### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/admin/ktag/uid/04%3AAB%3ACD%3AEF%3A12%3A34%3A56" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+### GET /api/admin/ktags/:tag_id
+
+Look up a KTag by its `kt_`-prefixed tag ID. Returns `404 Not Found` if the tag does not exist.
+
+**Auth:** Bearer token + admin role required.
+
+#### Path parameters
+
+<ParamField path="tag_id" type="string" required>
+  The `kt_`-prefixed tag ID to retrieve.
+</ParamField>
+
+#### Response — `200 OK`
+
+Returns the matching KTag object.
+
+#### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/admin/ktags/kt_01abc..." \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+### PATCH /api/admin/ktags/:tag_id
+
+Update a KTag's mutable fields. All body fields are optional. Server-managed fields (`uid_hash`, `payload`, `signature`, `sig_version`) are rejected if included.
+
+**Auth:** Bearer token + admin role required.
+
+#### Path parameters
+
+<ParamField path="tag_id" type="string" required>
+  The `kt_`-prefixed tag ID to update.
+</ParamField>
+
+#### Request body
+
+<ParamField body="status" type="string">
+  New tag status. `"active"` clears `revoked_at`; `"revoked"` stamps it automatically.
+</ParamField>
+<ParamField body="owner_id" type="string | null">
+  Assign the tag to this user ID, or `null` to unassign.
+</ParamField>
+<ParamField body="label" type="string | null">
+  Human-readable label, or `null` to clear it.
+</ParamField>
+<ParamField body="tag_type" type="string">
+  Physical tag form factor: `WALL`, `MOBILE`, or `DESK`.
+</ParamField>
+
+#### Response — `200 OK`
+
+Returns the updated KTag object.
+
+#### Example
+
+```bash
+curl -X PATCH "https://api.klariti.com/api/admin/ktags/kt_01abc..." \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "status": "active",
+    "owner_id": "user_01j2k...",
+    "label": "Reception wall tag",
+    "tag_type": "WALL"
+  }'
+```
+
+---
+
+### DELETE /api/admin/ktags/:tag_id
+
+Permanently delete a KTag record from the system.
+
+**Auth:** Bearer token + admin role required.
+
+#### Path parameters
+
+<ParamField path="tag_id" type="string" required>
+  The `kt_`-prefixed tag ID to delete.
+</ParamField>
+
+#### Response — `200 OK`
+
+```json
+{ "success": true }
+```
+
+#### Example
+
+```bash
+curl -X DELETE "https://api.klariti.com/api/admin/ktags/kt_01abc..." \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+## Public Route
+
+### GET /api/tag/:message
+
+Resolve a KTag from the NFC URL message payload. This is the endpoint hit when a user taps a physical KTag — no authentication is required. Returns `404 Not Found` for unrecognised or revoked tags.
+
+**Auth:** None required.
+
+#### Path parameters
+
+<ParamField path="message" type="string" required>
+  The NFC message payload encoded in the tag's URL (e.g. the path segment from `https://k.klariti.com/t/<message>`).
+</ParamField>
+
+#### Response — `200 OK`
+
+<ResponseField name="tag_id" type="string" required>
+  The `kt_`-prefixed tag ID.
+</ResponseField>
+<ResponseField name="tag_name" type="string" required>
+  Resolved display name for the tag.
+</ResponseField>
+<ResponseField name="owner_name" type="string | null" required>
+  Display name of the tag owner, or `null` if unassigned.
+</ResponseField>
+<ResponseField name="status" type="string" required>
+  Tag status: `active` or `revoked`.
+</ResponseField>
+
+#### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/tag/kt_01abc..."
+```
+
+```json
+{
+  "tag_id": "kt_01abc...",
+  "tag_name": "Desk tag",
+  "owner_name": "Ada Lovelace",
+  "status": "active"
+}
+```

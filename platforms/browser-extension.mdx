@@ -1,0 +1,140 @@
+---
+title: "Browser Extension: Gray Engine Rules in Real Time"
+sidebarTitle: "Browser Extension"
+description: "The Klariti MV3 browser extension applies Gray Engine rules to web pages in real time, driven by your active intent and goal."
+---
+
+The browser extension (`@klariti/xt`) is a Manifest V3 extension that runs in the background while you browse and applies Gray Engine rules based on your currently active intent. It is built with [WXT](https://wxt.dev) and lives at `apps/extension/` in the monorepo.
+
+## How it works
+
+The extension has two main runtime pieces: a background service worker that handles message routing and API calls, and a popup UI that shows your current intents and lets you sign in.
+
+### Background service worker
+
+`entrypoints/background.ts` listens for two message types sent by content scripts or the popup:
+
+```typescript
+const API_URL = "http://localhost:4200";
+
+/** Classify a URL via the API */
+async function classifyUrl(url: string): Promise<string | null> {
+  try {
+    const res = await apiFetch("/api/classify/", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) {
+      console.warn("[klariti] classify failed:", res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    return data?.category ?? null;
+  } catch (err) {
+    console.error("[klariti] classify error:", err);
+    return null;
+  }
+}
+
+/** Get the currently active intent's goal */
+async function getActiveGoal(): Promise<string | null> {
+  try {
+    const res = await apiFetch("/api/users/me/challenges");
+    if (!res.ok) return null;
+    const intents: Intent[] = await res.json();
+    const active = intents.find(
+      (i) => i.status === "active" && i.participant_status === "active"
+    );
+    return active?.goal ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export default defineBackground(() => {
+  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "CLASSIFY_URL" && message.url) {
+      classifyUrl(message.url).then((category) => sendResponse({ category }));
+      return true; // keep channel open for async response
+    }
+
+    if (message?.type === "GET_ACTIVE_GOAL") {
+      getActiveGoal().then((goal) => sendResponse({ goal }));
+      return true;
+    }
+  });
+});
+```
+
+<CardGroup cols={2}>
+  <Card title="CLASSIFY_URL" icon="magnifying-glass">
+    Calls `POST /api/classify/` with a URL and returns `{ category }`. Used by content scripts to determine how the Gray Engine should treat the current page.
+  </Card>
+  <Card title="GET_ACTIVE_GOAL" icon="bullseye">
+    Calls `GET /api/users/me/challenges`, finds the first challenge where both `status` and `participant_status` are `"active"`, and returns `{ goal }`.
+  </Card>
+</CardGroup>
+
+API calls use session cookies (`credentials: "include"`) so the extension shares the browser's authenticated session with the web dashboard. No separate token management is needed in the extension.
+
+<Note>
+  The API base URL is currently hardcoded to `http://localhost:4200` in `background.ts` for local development. Update this value when pointing at a deployed API.
+</Note>
+
+### Popup UI
+
+`entrypoints/popup/App.tsx` renders a small popup showing the signed-in user's intents. It uses `@klariti/api/client` (`createApiClient`) and imports the `ChallengeWithStatus` type from `@klariti/api/contracts`.
+
+**Signed-out state** — shows the Klariti logo and a **Sign In** button that opens `/auth` on the web dashboard in a new tab.
+
+**Signed-in state** — greets the user by first name, lists all their intents with goal badges, and provides a **Dashboard →** link to open the full web dashboard.
+
+#### Goal labels
+
+Intents display a human-readable badge for each goal value:
+
+| Goal value | Badge label |
+|------------|-------------|
+| `FOCUS` | Focus |
+| `WORK` | Work |
+| `STUDY` | Study |
+| `CASUAL` | Casual |
+
+#### Intent polling
+
+Once signed in, the popup polls `GET /api/users/me/challenges` every **500 ms** to keep the intent list fresh without requiring a manual refresh:
+
+```typescript
+useEffect(() => {
+  if (!user) return;
+  const interval = setInterval(async () => {
+    await loadMyChallenges();
+  }, 500);
+  return () => clearInterval(interval);
+}, [user]);
+```
+
+## Packages used
+
+| Package | Import path | Usage |
+|---------|-------------|-------|
+| `@klariti/api` | `@klariti/api/client` | `createApiClient` — typed fetch client |
+| `@klariti/api` | `@klariti/api/contracts` | `ChallengeWithStatus` type |
+
+These exports are client-safe: they contain no Fastify, Better Auth server, or database code, so they can be bundled directly into the extension.
+
+## Building and running
+
+Open the extension in dev mode using WXT's standard workflow from the monorepo root:
+
+```bash
+pnpm --filter @klariti/xt dev
+```
+
+To produce a production build:
+
+```bash
+pnpm --filter @klariti/xt build
+```
+
+The output directory can be loaded as an unpacked extension from `apps/extension/.output/chrome-mv3/` (or the equivalent for your target browser).

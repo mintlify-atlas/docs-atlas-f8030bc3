@@ -1,0 +1,140 @@
+---
+title: "Klariti API Reference: Overview & Quick Start"
+sidebarTitle: "Overview"
+description: "Base URLs, the /api prefix, interactive Swagger docs, all 8 contract modules, bearer auth, and the TypeScript client in one place."
+---
+
+The Klariti API is a Fastify-based REST server that orchestrates challenges, friends, NFC ktags, and content classification. Every application route lives under the `/api` prefix, protected routes require a bearer token, and a fully interactive Swagger UI is available at `/docs` so you can explore every endpoint without leaving the browser.
+
+## Base URL
+
+| Environment | Base URL |
+|---|---|
+| Development | `http://localhost:4200` |
+| Production | Deployed to Vercel (configured via `APP_URL`) |
+
+The dev server starts on port `4200` by default. Override it with the `PORT` environment variable.
+
+<Note>
+  All documented application routes use the `/api` prefix — for example `POST /api/sign-in` and `GET /api/challenges`. The `/docs` route (Swagger UI) and its supporting OAuth token endpoint at `/api/docs/oauth/token` are the only exceptions.
+</Note>
+
+## Interactive Documentation
+
+The API ships with a live Swagger UI powered by `@fastify/swagger-ui` and an OpenAPI document generated directly from the ts-rest contracts.
+
+```http
+GET /docs
+```
+
+Sign in through the **Authorize** button using the built-in OAuth 2.0 password flow. The Swagger UI sends your credentials to `/api/docs/oauth/token`, receives a bearer token, and attaches it automatically to every subsequent request in the session.
+
+<Tip>
+  The **username** field in Swagger's Authorize dialog should be your Klariti account email address, not a separate username.
+</Tip>
+
+## Authentication
+
+All protected routes require a bearer token in the `Authorization` header:
+
+```http
+Authorization: Bearer <token>
+```
+
+You obtain a token by calling `POST /api/sign-in` (or `POST /api/sign-up`). Both endpoints return `{ token, user }`. Pass the `token` value directly in the header on every subsequent request. See the [Authentication](/api/authentication) page for the full request and response details.
+
+## Contract Modules
+
+The API surface is organised into eight ts-rest contract modules, all composed in `api/src/api.contract.ts`:
+
+| Module | Description |
+|---|---|
+| `auth` | Sign-up and sign-in — the only public routes |
+| `users` | Profile reads, profile updates, and challenge lookups by user |
+| `challenges` | Full challenge CRUD, participation, and invitation flows |
+| `friends` | Friend requests, acceptance/decline, and friendship management |
+| `ktags` | User-facing NFC ktag management (list and label updates) |
+| `adminKtags` | Admin-only ktag registration, lookup, mutation, and deletion |
+| `classify` | URL → goal category classification (`POST /api/classify`) |
+| `public` | Public tag resolution via `GET /api/tag/:message` (no auth required) |
+
+## TypeScript Client
+
+Import the typed client from `@klariti/api/client`. It wraps every contract module and provides end-to-end TypeScript types for request bodies and responses.
+
+```ts
+import { createApiClient } from '@klariti/api/client';
+
+const api = createApiClient({ baseUrl: 'http://localhost:4200' });
+```
+
+`createApiClient` accepts a `baseUrl`, optional `baseHeaders`, and an optional `credentials` mode (defaults to `"include"` for cookie-based sessions).
+
+### Example — Fetch the current user's challenges
+
+```ts
+import { createApiClient } from '@klariti/api/client';
+
+const api = createApiClient({
+  baseUrl: 'http://localhost:4200',
+  baseHeaders: {
+    Authorization: 'Bearer <your-token>',
+  },
+});
+
+const res = await api.challenges.getMyChallenges();
+// res.status === 200
+// res.body  → array of challenge objects
+```
+
+### Shared contracts
+
+Import types and Zod schemas without pulling in any server code:
+
+```ts
+import { contract } from '@klariti/api/contracts';
+// contract.challenges, contract.auth, etc.
+```
+
+The `@klariti/api/contracts` export is intentionally client-safe — it excludes Fastify, Better Auth server wiring, and all database code, so it can be used safely in the web dashboard and browser extension.
+
+## Error Shape
+
+Every error response across all modules uses the same `ErrorSchema` shape:
+
+```json
+{ "error": "Human-readable error message" }
+```
+
+Common HTTP status codes:
+
+| Code | Meaning |
+|---|---|
+| `400` | Bad request — validation failed or malformed body |
+| `401` | Unauthenticated — missing or invalid bearer token |
+| `403` | Forbidden — authenticated but not authorised |
+| `404` | Resource not found |
+| `422` | Unprocessable entity — semantic validation error |
+
+## Explore the API
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/api/authentication">
+    Sign up, sign in, and use bearer tokens to call protected routes.
+  </Card>
+  <Card title="Users" icon="user" href="/api/users">
+    Search users, read and update your profile, change email and password.
+  </Card>
+  <Card title="Challenges" icon="trophy" href="/api/challenges">
+    Create and manage challenges, invitations, and participation.
+  </Card>
+  <Card title="Friends" icon="users" href="/api/friends">
+    Send, accept, and manage friend requests and friendships.
+  </Card>
+  <Card title="KTags" icon="tag" href="/api/ktags">
+    List your NFC ktags and update their labels.
+  </Card>
+  <Card title="Classify" icon="sparkles" href="/api/classify">
+    Classify a URL into a Klariti goal category.
+  </Card>
+</CardGroup>

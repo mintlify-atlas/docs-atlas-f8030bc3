@@ -1,0 +1,62 @@
+---
+title: "Klariti: The Antisocial Social Platform"
+sidebarTitle: "Introduction"
+description: "Klariti uses the same social mechanics that keep you hooked online — streaks, challenges, accountability — and points them at focus instead of engagement."
+---
+
+Klariti is an antisocial social platform: it borrows the dynamics that power the attention economy and re-routes them toward helping you spend less time online. This page explains what Klariti is, the core problem it addresses, and the key concepts and platforms you'll encounter throughout these docs.
+
+## The problem
+
+The internet stopped being a tool and became an environment engineered to keep you inside it. The social mechanics that make that work — streaks, peer pressure, shared commitments, challenge loops — are not inherently bad. Klariti takes those same mechanics and points them at focus instead of engagement.
+
+You set an intention. You invite the people you actually want to focus with into a shared challenge. You use a physical NFC tag to lock your phone. The social layer is there to make it stick, not to pull you back in.
+
+<Note>
+  Klariti does not replace platform recommendation algorithms or add a feed of its own. It has no engagement loop to fall into — by design.
+</Note>
+
+## Key concepts
+
+<CardGroup cols={2}>
+  <Card title="Intents & Challenges" icon="bullseye-arrow" href="/concepts/intents-and-challenges">
+    The basic unit of focus. An intent bundles a goal with Gray Engine rules. A challenge adds a deadline, friends, and a group pause condition.
+  </Card>
+  <Card title="Gray Engine" icon="sliders" href="/concepts/gray-engine">
+    The content mediation layer. Given your goal and rules, it decides how to modify a webpage: hide, blur, or highlight sections. Predictable, explainable, and reversible.
+  </Card>
+  <Card title="Ktags" icon="tag" href="/concepts/ktags">
+    Physical NFC tags that gate focus sessions on iOS. Tap to lock, tap the same tag to unlock. No software bypass.
+  </Card>
+  <Card title="Friends" icon="users" href="/concepts/friends">
+    The accountability layer. Shared challenges only work if the group is real — Klariti has no public feed to drift into.
+  </Card>
+</CardGroup>
+
+## Platforms
+
+Klariti runs across four surfaces that share a single API layer:
+
+| Platform | Package | Purpose |
+|---|---|---|
+| Web dashboard | `@klariti/web` | Manage intents, challenges, friends, and rules |
+| Browser extension | `@klariti/xt` | Applies Gray Engine rules to pages in real time (MV3) |
+| iOS app | — | NFC-gated focus sessions with native app blocking via Screen Time |
+| API | `@klariti/api` | Orchestrates classification, rules, and social state (port 4200) |
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Clone the repo, configure environment variables, run migrations, and start the dev server in minutes.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Monorepo layout, API module structure, auth package exports, and Vercel deployment notes.
+  </Card>
+  <Card title="API Overview" icon="code" href="/api/overview">
+    Explore the full REST surface, ts-rest contracts, and client setup.
+  </Card>
+  <Card title="Gray Engine" icon="sliders" href="/concepts/gray-engine">
+    Understand how URL classification drives per-page content modification rules.
+  </Card>
+</CardGroup>

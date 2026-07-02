@@ -1,0 +1,149 @@
+---
+title: "iOS App: NFC-Gated Focus Sessions with Screen Time"
+sidebarTitle: "iOS App"
+description: "The Klariti iOS app enforces focus sessions using physical NFC tags and native Screen Time (FamilyControls) — no VPN or proxy required."
+---
+
+The Klariti iOS app (`apps/ios/`) locks your phone using a physical NFC tag and native Apple Screen Time APIs. There is no VPN, no proxy, and no software bypass — the only way to end a session is to tap the same physical tag you used to start it.
+
+<Warning>
+  iOS Screen Time (FamilyControls) requires a physical iPhone with FamilyControls entitlements. This feature cannot be tested in the iOS Simulator.
+</Warning>
+
+## Focus session flow
+
+<Steps>
+  <Step title="Select apps to block">
+    On first launch, `AppSelectionView` prompts for FamilyControls authorization and opens the native app picker. Your selection is persisted via `ScreenTimeManager` so it survives app restarts.
+  </Step>
+  <Step title="Tap Start Focus and scan your ktag">
+    On the home screen, tap **Start Focus**. The app opens an NFC reader session. Hold your Klariti tag to the top of the iPhone. The tag's payload is verified against the bundled Ed25519 public key by `KtagVerifier`. If the signature is valid, the app records the tag's payload and hardware UID, sets `isLocked = true`, and calls `ScreenTimeManager.applyShields()` to shield the selected apps.
+  </Step>
+  <Step title="Scan the same tag to end the session">
+    On the lock screen, tap **Unlock**. The app opens a second NFC reader session. It verifies the scanned tag and checks that the payload and UID match the tag used to start the session — any other tag is rejected with `"Use the same tag you used to start this session."` When the matching tag is detected, `ScreenTimeManager.clearShields()` is called and the session ends.
+  </Step>
+</Steps>
+
+## Account and role model
+
+Authentication state is managed in `AppStore`. The profile entry in the top-right corner of the app routes to a sign-in screen when the user is signed out, and shows profile details when signed in.
+
+Admin users see an additional **NFC Utility** tab inside the same app — there is no separate admin build.
+
+```swift
+var isAdmin: Bool {
+    currentUser?.isAdmin == true
+}
+```
+
+Sign-in uses `KlaritiAPIClient.signIn(email:password:)`, which calls `POST /api/sign-in` and returns a bearer token that is persisted in the iOS Keychain.
+
+## Admin NFC utility
+
+The NFC utility is visible only to signed-in admin users and has three operating modes:
+
+<CardGroup cols={2}>
+  <Card title="Provision" icon="plus-circle">
+    Scans a physical tag. Registers it via `POST /api/admin/ktags` if the UID is new, or recovers the existing record via `GET /api/admin/ktags/uid/:uid` if it is already known. Compares the live on-tag payload with Klariti's expected payload and can burn the Klariti URL onto a blank or mismatched tag.
+  </Card>
+  <Card title="Patch" icon="pencil">
+    Scans a registered tag by UID, loads its existing ktag record, and lets admins edit `status`, `label`, and `tag_type` only. Server-managed fields (`uid_hash`, `payload`, `signature`, `sig_version`) are never patchable.
+  </Card>
+  <Card title="Inspect" icon="eye">
+    Reads the raw iPhone-visible NFC details for any tag: UID / identifier source, NDEF status, capacity, payload, and decoded records. Useful for debugging unfamiliar tags.
+  </Card>
+  <Card title="Payload states" icon="check-circle">
+    After provisioning, the result reports one of three payload states: **Matches Klariti Payload**, **Missing on Tag** (blank tag), or **Different Payload on Tag** (pre-written with something else).
+  </Card>
+</CardGroup>
+
+### Two-session write flow
+
+Provisioning a tag uses two separate NFC sessions on purpose. iOS Core NFC does not allow reading and writing in a single session. The app reads first to complete registration or recovery, then starts a dedicated write session via `NFCNDEFWriter` to burn the Klariti URL payload if the tag is blank or mismatched.
+
+<Tip>
+  A tag with `needsBurn = true` (payload missing or mismatched and not revoked) will show a **Burn Tag** action after provisioning completes.
+</Tip>
+
+## Core files
+
+| File | Purpose |
+|------|---------|
+| `Core/KlaritiAPIClient.swift` | Embedded iOS API client. Handles `signIn`, `currentUser`, `registerKtag`, `ktagByUID`, and `patchKtag`. Uses `URLSession` with snake_case JSON coding and bearer token auth. |
+| `Core/NFCScanner.swift` | NFC read session management. Wraps `NFCTagReaderSession`, extracts the hardware UID from MIFARE, ISO 15693, ISO 7816, and FeliCa tags, and reads NDEF records. Supports an `onVerifyScan` callback to accept or reject a scan before the session closes. |
+| `Core/NFCNDEFWriter.swift` | NDEF URL payload writing for the provisioning write session. |
+| `Core/ScreenTimeManager.swift` | Wraps `ManagedSettingsStore` to apply and clear app shields from a `FamilyActivitySelection`, and persists the selection to `UserDefaults`. |
+| `Core/KtagVerifier.swift` | Verifies a scanned tag offline using the bundled Ed25519 public key. Parses the `https://klariti.so/tag/v{ver}.{tag_id}.{sig}` URL format and validates the signature over `v{ver}|{tag_id}|{uid_hash}`. |
+| `Models/AppStore.swift` | `@Observable` single source of truth for all app state and actions. Injected at the root via `.environment(store)`. |
+
+## Screen Time integration
+
+`ScreenTimeManager` uses `ManagedSettings` to shield apps without installing a VPN profile or modifying network traffic:
+
+```swift
+func applyShields(from selection: FamilyActivitySelection) {
+    settingsStore.shield.applications = selection.applicationTokens
+    settingsStore.shield.applicationCategories = .specific(selection.categoryTokens)
+}
+
+func clearShields() {
+    settingsStore.shield.applications = nil
+    settingsStore.shield.applicationCategories = nil
+}
+```
+
+FamilyControls authorization is requested on first launch via `AuthorizationCenter.shared.requestAuthorization(for: .individual)`. If authorization is already granted on subsequent launches, shields are re-applied immediately if `isLocked` is `true` in persisted state.
+
+## Key entitlements
+
+| Entitlement | Reason |
+|-------------|--------|
+| `com.apple.developer.family-controls` | Required for `ManagedSettings` shield operations (Screen Time) |
+| `com.apple.developer.nfc.readersession.formats` | Required to read and write NFC tags via Core NFC |
+
+## TestFlight CI
+
+The `.github/workflows/testflight.yml` workflow builds and uploads to TestFlight automatically on every push to the `ios-d` branch that touches `apps/ios/**`. It can also be triggered manually via `workflow_dispatch`.
+
+<Steps>
+  <Step title="Check out and select Xcode">
+    Runs on `macos-15` with Xcode 16.2.
+  </Step>
+  <Step title="Configure App Store Connect API key">
+    Decodes `APP_STORE_CONNECT_API_KEY_BASE64` from secrets and writes the `.p8` file to `~/private_keys/`.
+  </Step>
+  <Step title="Increment build number">
+    Sets the build number to `github.run_number` via `agvtool new-version`.
+  </Step>
+  <Step title="Build archive">
+    Runs `xcodebuild archive` with automatic code signing using the App Store Connect API key.
+  </Step>
+  <Step title="Export IPA">
+    Runs `xcodebuild -exportArchive` using `ExportOptions.plist` in `apps/ios/`.
+  </Step>
+  <Step title="Upload to TestFlight">
+    Uploads the `.ipa` via `xcrun altool --upload-app`.
+  </Step>
+</Steps>
+
+Required repository secrets: `APP_STORE_CONNECT_API_KEY_BASE64`, `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID`.
+
+## Local development
+
+Open the Xcode project directly:
+
+```bash
+pnpm --filter @klariti/ios dev
+# equivalent to: open apps/ios/klariti.xcodeproj
+```
+
+To build for a device without Xcode's UI:
+
+```bash
+xcodebuild \
+  -project klariti.xcodeproj \
+  -scheme klariti \
+  -configuration Release \
+  -destination 'generic/platform=iOS' \
+  CODE_SIGNING_ALLOWED=NO
+```

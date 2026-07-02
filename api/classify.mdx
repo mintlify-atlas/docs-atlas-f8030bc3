@@ -1,0 +1,136 @@
+---
+title: "Klariti Classify Endpoint — URL Content Categorisation"
+sidebarTitle: "Classify"
+description: "Submit any URL to the Klariti classify endpoint and receive a content category string that maps to a challenge goal, or null for unclassifiable URLs."
+---
+
+The classify endpoint accepts a URL and returns a category string derived from the content at that URL. It is used by the Klariti browser extension to automatically assess whether the page a user is viewing aligns with their active challenge goal.
+
+<Note>
+  The classify endpoint currently supports **YouTube URLs only**. All other URLs return `category: null`. Classification uses the YouTube Data API — the server requires a valid `YOUTUBE_API_KEY` environment variable to be set.
+</Note>
+
+---
+
+## POST /api/classify
+
+Classify a URL and return its content category.
+
+**Auth:** Bearer token required.
+
+### Request body
+
+<ParamField body="url" type="string" required>
+  The URL to classify. Any valid URL string is accepted; non-YouTube URLs return `null`.
+</ParamField>
+
+### Response — `200 OK`
+
+<ResponseField name="category" type="string | null" required>
+  A YouTube video category title such as `"Education"`, `"Science & Technology"`, or `"Gaming"`. Returns `null` when the URL is not a YouTube video, when the YouTube Data API cannot identify a category, or when classification fails.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X POST "https://api.klariti.com/api/classify" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
+```
+
+```json
+{
+  "category": "Music"
+}
+```
+
+#### Non-YouTube URL
+
+```bash
+curl -X POST "https://api.klariti.com/api/classify" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://github.com/klariti-os/klariti-os"}'
+```
+
+```json
+{
+  "category": null
+}
+```
+
+---
+
+## Browser extension integration
+
+The Klariti browser extension uses `POST /api/classify` in its background service worker to assess the content of the active tab in real time. It also reads the user's current active challenge goal via `GET /api/users/me/challenges` to determine alignment.
+
+### CLASSIFY_URL message
+
+The extension popup sends a `CLASSIFY_URL` message to the background worker whenever it needs to classify the current tab URL. The background worker calls the API and returns the result asynchronously.
+
+```typescript
+// In background.ts — handler registered in browser.runtime.onMessage
+if (message?.type === "CLASSIFY_URL" && message.url) {
+  classifyUrl(message.url).then((category) => sendResponse({ category }));
+  return true; // keep the message channel open for the async response
+}
+```
+
+The `classifyUrl` helper posts directly to `POST /api/classify` using the session credentials:
+
+```typescript
+async function classifyUrl(url: string): Promise<string | null> {
+  try {
+    const res = await apiFetch("/api/classify/", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) {
+      console.warn("[klariti] classify failed:", res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    console.log("[klariti] classify result:", url, data);
+    return data?.category ?? null;
+  } catch (err) {
+    console.error("[klariti] classify error:", err);
+    return null;
+  }
+}
+```
+
+### GET_ACTIVE_GOAL message
+
+The popup sends a `GET_ACTIVE_GOAL` message to read the user's currently active challenge goal. The background worker fetches `GET /api/users/me/challenges`, finds the first challenge where both the challenge `status` and the user's `participant_status` are `"active"`, and returns its `goal` value.
+
+```typescript
+// In background.ts — GET_ACTIVE_GOAL handler
+if (message?.type === "GET_ACTIVE_GOAL") {
+  getActiveGoal().then((goal) => sendResponse({ goal }));
+  return true;
+}
+```
+
+```typescript
+async function getActiveGoal(): Promise<string | null> {
+  try {
+    const res = await apiFetch("/api/users/me/challenges");
+    if (!res.ok) return null;
+    const intents: Intent[] = await res.json();
+    const active = intents.find(
+      (i) => i.status === "active" && i.participant_status === "active"
+    );
+    return active?.goal ?? null;
+  } catch {
+    return null;
+  }
+}
+```
+
+The returned `goal` is one of `FOCUS`, `WORK`, `STUDY`, or `CASUAL` — matching the `goal` enum on the challenge object. The popup uses this value together with the classified category to decide whether to surface a focus nudge to the user.
+
+<Tip>
+  The extension uses `credentials: "include"` rather than an explicit Bearer token header, relying on the session cookie set by the Klariti web app. Bearer token authentication is used when calling from outside a browser session.
+</Tip>

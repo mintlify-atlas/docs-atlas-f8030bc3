@@ -1,0 +1,167 @@
+---
+title: "Intents and Challenges: Goals with Commitment"
+sidebarTitle: "Intents & Challenges"
+description: "Learn how Klariti's intents and challenges share one data model, how the group pause threshold works, and how invitations gate private challenge access."
+---
+
+Intents and challenges are the core building blocks of Klariti. An **intent** is a goal bundled with rules for the Gray Engine — something you toggle on or off at any time, privately, with no deadline. A **challenge** is that same intent with social commitment layered on top: a deadline, friends, and a group pause condition that ties everyone's focus sessions together. The distinction is purely UX framing. Under the hood, both are the same `Challenge` data shape — a solo intent is just a challenge with one participant and no `ends_at` value set.
+
+## The Challenge model
+
+Every intent and challenge is stored as a single `Challenge` row. The following interfaces are the canonical data shapes used throughout the API:
+
+```typescript
+interface Challenge {
+  id: string
+  creator_id: string
+  name: string
+  goal: "FOCUS" | "WORK" | "STUDY" | "CASUAL"
+  visibility: "public" | "private"
+  status: "active" | "paused" | "completed"
+  ends_at?: Date           // set = time-bound; absent on solo intents
+  pause_threshold?: number // 0.0–1.0, triggers group pause
+  created_at: Date
+  updated_at: Date
+}
+
+// One row per (challenge, user). Composite PK — a user joins once.
+interface ChallengeParticipant {
+  challenge_id: string
+  user_id: string
+  status: "active" | "paused" | "completed"
+  joined_at?: Date
+  created_at: Date
+}
+```
+
+### Goals
+
+The `goal` field tells the Gray Engine what kind of session is active. Four values are supported:
+
+| Goal | Intended use |
+|---|---|
+| `FOCUS` | Deep, distraction-free work |
+| `WORK` | General professional tasks |
+| `STUDY` | Reading, research, coursework |
+| `CASUAL` | Lighter browsing with mild mediation |
+
+### Two separate status fields
+
+The model deliberately separates challenge-level status from participant-level status.
+
+**`Challenge.status`** describes the lifecycle of the challenge itself:
+
+| Value | Meaning |
+|---|---|
+| `active` | Challenge is running |
+| `paused` | Challenge-level pause (e.g. triggered by threshold) |
+| `completed` | Challenge has ended |
+
+**`ChallengeParticipant.status`** describes one user's state within the challenge:
+
+| Value | Meaning |
+|---|---|
+| `active` | User is actively participating |
+| `paused` | User has paused their own participation |
+| `completed` | User has completed the challenge |
+
+Keeping these separate prevents "paused challenge" and "paused participant" from colliding in search results, UI rendering, and automation logic.
+
+## Group pause: `pause_threshold`
+
+The `pause_threshold` field is what turns a group challenge into an accountability mechanism with shared weight. It is a float between `0.0` and `1.0` representing the fraction of participants who must choose to pause before the challenge itself pauses for everyone.
+
+Setting `pause_threshold: 0.5` means the challenge enters a group pause once at least 50% of participants have individually paused their participation. This makes stepping back a collective decision rather than a solo one.
+
+<Note>
+  Solo intents leave `pause_threshold` unset. The field is only meaningful with more than one participant.
+</Note>
+
+## Visibility
+
+Challenges default to `private`.
+
+| Visibility | Access |
+|---|---|
+| `public` | Any authenticated user with the challenge ID can view and join directly |
+| `private` | Requires an invitation; only participants can read challenge details |
+
+## Participation
+
+### Joining and leaving
+
+```
+POST /api/challenges/:challengeId/join
+POST /api/challenges/:challengeId/leave
+```
+
+Public challenges accept a join request directly. Private challenges require an accepted invitation before a join call succeeds.
+
+### Updating participation status
+
+```
+PATCH /api/challenges/:challengeId/status
+```
+
+Participants can pause or resume their own participation at any time. The request body accepts `{ "status": "active" | "paused" }`.
+
+## Challenge invitations
+
+The challenge creator invites friends to private challenges. Each invitation is a separate row — you can invite the same person to multiple challenges independently.
+
+```
+POST /api/challenges/:challengeId/invitations   # creator sends invite
+GET  /api/users/me/challenges/invitations        # recipient views pending invites
+POST /api/challenges/invitations/:invitationId/accept
+POST /api/challenges/invitations/:invitationId/decline
+POST /api/challenges/invitations/:invitationId/cancel
+```
+
+Invitation status values:
+
+| Status | Description |
+|---|---|
+| `pending` | Sent, awaiting response |
+| `accepted` | Recipient joined the challenge |
+| `declined` | Recipient declined |
+| `withdrawn` | Creator cancelled before a response |
+| `ignored` | No action taken; treated as inactive |
+
+<Tip>
+  Accepting an invitation automatically creates a `ChallengeParticipant` row for the recipient. The join call handles both the invitation acceptance path and the open join path.
+</Tip>
+
+## API surface summary
+
+<CardGroup cols={2}>
+  <Card title="Challenges" icon="list-check">
+    `GET /api/challenges` — search public challenges
+
+    `POST /api/challenges` — create a challenge or intent
+
+    `PATCH /api/challenges/:id` — update (creator only)
+
+    `DELETE /api/challenges/:id` — delete (creator only)
+  </Card>
+  <Card title="Participation" icon="users">
+    `POST /api/challenges/:id/join`
+
+    `POST /api/challenges/:id/leave`
+
+    `PATCH /api/challenges/:id/status`
+
+    `GET /api/challenges/:id/participants`
+  </Card>
+  <Card title="My Challenges" icon="person">
+    `GET /api/users/me/challenges` — your active challenges
+
+    `GET /api/users/:userId/challenges` — another user's challenges
+  </Card>
+  <Card title="Invitations" icon="envelope">
+    `POST /api/challenges/:id/invitations` — invite a friend
+
+    `GET /api/challenges/:id/invitations` — list invitations (creator)
+
+    `GET /api/users/me/challenges/invitations` — your pending invites
+  </Card>
+</CardGroup>

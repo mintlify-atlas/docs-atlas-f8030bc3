@@ -1,0 +1,514 @@
+---
+title: "Klariti Challenge Endpoints — CRUD & Participation"
+sidebarTitle: "Challenges"
+description: "Create, search, update, and delete challenges; manage participation status; and send or respond to challenge invitations with the Klariti API."
+---
+
+All challenge endpoints require a valid Bearer token in the `Authorization` header. Endpoints marked **creator only** return `403 Forbidden` when called by a non-creator.
+
+<Tip>
+  Global challenge discovery at `GET /api/challenges` is constrained to **public** challenges only. Use the user profile endpoints to access private challenges you belong to.
+</Tip>
+
+---
+
+## Supported values
+
+| Field | Allowed values |
+|---|---|
+| `goal` | `FOCUS` \| `WORK` \| `STUDY` \| `CASUAL` |
+| `visibility` | `public` \| `private` |
+| Challenge `status` | `active` \| `paused` \| `completed` |
+| Participant `status` | `active` \| `paused` \| `completed` |
+| Invitation `status` | `pending` \| `accepted` \| `declined` \| `withdrawn` \| `ignored` |
+
+---
+
+## Challenges — CRUD
+
+### POST /api/challenges
+
+Create a new challenge. The authenticated user becomes the creator and is automatically added as a participant.
+
+**Auth:** Bearer token required.
+
+#### Request body
+
+<ParamField body="name" type="string" required>
+  Challenge name. Minimum 1 character.
+</ParamField>
+<ParamField body="goal" type="string" required>
+  Activity goal for the challenge. One of `FOCUS`, `WORK`, `STUDY`, or `CASUAL`.
+</ParamField>
+<ParamField body="visibility" type="string">
+  `public` (discoverable by anyone) or `private` (invite-only). Defaults to `public`.
+</ParamField>
+<ParamField body="status" type="string">
+  Initial challenge status. One of `active`, `paused`, or `completed`. Defaults to `active`.
+</ParamField>
+<ParamField body="ends_at" type="string">
+  ISO 8601 datetime at which the challenge ends. Omit for an open-ended challenge.
+</ParamField>
+<ParamField body="pause_threshold" type="number">
+  Maximum number of times a participant may pause. Omit for unlimited pauses.
+</ParamField>
+
+#### Response — `200 OK`
+
+<ResponseField name="id" type="string" required>UUID of the newly created challenge.</ResponseField>
+<ResponseField name="creator_id" type="string" required>ID of the creating user.</ResponseField>
+<ResponseField name="name" type="string" required>Challenge name.</ResponseField>
+<ResponseField name="goal" type="string" required>Activity goal.</ResponseField>
+<ResponseField name="visibility" type="string" required>Visibility setting.</ResponseField>
+<ResponseField name="status" type="string" required>Current challenge status.</ResponseField>
+<ResponseField name="ends_at" type="string | null" required>Expiry timestamp or `null`.</ResponseField>
+<ResponseField name="pause_threshold" type="number | null" required>Pause limit or `null`.</ResponseField>
+<ResponseField name="created_at" type="string | null" required>ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="updated_at" type="string | null" required>ISO 8601 last-updated timestamp.</ResponseField>
+
+#### Example
+
+```bash
+curl -X POST "https://api.klariti.com/api/challenges" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "30 days of focus",
+    "goal": "FOCUS",
+    "visibility": "public",
+    "status": "active",
+    "ends_at": "2026-07-14T00:00:00.000Z",
+    "pause_threshold": 3
+  }'
+```
+
+---
+
+### GET /api/challenges
+
+Search the global collection of public challenges. Supports free-text search and filtering by status and visibility.
+
+**Auth:** Bearer token required.
+
+#### Query parameters
+
+<ParamField query="q" type="string">
+  Free-text search matched against challenge name.
+</ParamField>
+<ParamField query="status" type="string">
+  Filter by challenge status: `active`, `paused`, or `completed`.
+</ParamField>
+<ParamField query="visibility" type="string">
+  Filter by visibility: `public` or `private`.
+</ParamField>
+
+#### Response — `200 OK`
+
+Returns an array of discovery-enriched challenge objects.
+
+<ResponseField name="id" type="string" required>Challenge UUID.</ResponseField>
+<ResponseField name="creator_id" type="string" required>Creator's user ID.</ResponseField>
+<ResponseField name="creator_name" type="string" required>Creator's display name.</ResponseField>
+<ResponseField name="name" type="string" required>Challenge name.</ResponseField>
+<ResponseField name="goal" type="string" required>Activity goal.</ResponseField>
+<ResponseField name="visibility" type="string" required>Visibility setting.</ResponseField>
+<ResponseField name="status" type="string" required>Challenge status.</ResponseField>
+<ResponseField name="participant_status" type="string | null" required>The caller's participation status, or `null` if not participating.</ResponseField>
+<ResponseField name="joined_at" type="string | null" required>ISO 8601 timestamp when the caller joined, or `null`.</ResponseField>
+<ResponseField name="ends_at" type="string | null" required>Expiry timestamp or `null`.</ResponseField>
+<ResponseField name="pause_threshold" type="number | null" required>Pause limit or `null`.</ResponseField>
+<ResponseField name="created_at" type="string | null" required>ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="updated_at" type="string | null" required>ISO 8601 last-updated timestamp.</ResponseField>
+
+#### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/challenges?q=fitness&status=active" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+### GET /api/challenges/:challengeId
+
+Fetch a single challenge. The authenticated user must be either the creator or a participant; private challenges are inaccessible to everyone else.
+
+**Auth:** Bearer token required.
+
+#### Path parameters
+
+<ParamField path="challengeId" type="string" required>
+  UUID of the challenge to retrieve.
+</ParamField>
+
+#### Response — `200 OK`
+
+Returns a single challenge object (same shape as the `POST /api/challenges` response).
+
+#### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/challenges/550e8400-e29b-41d4-a716-446655440000" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+### PATCH /api/challenges/:challengeId
+
+Update a challenge. **Creator only.** All body fields are optional — send only those you want to change. `ends_at` and `pause_threshold` may be explicitly set to `null` to clear them.
+
+**Auth:** Bearer token required.
+
+#### Path parameters
+
+<ParamField path="challengeId" type="string" required>
+  UUID of the challenge to update.
+</ParamField>
+
+#### Request body
+
+<ParamField body="name" type="string">Updated challenge name.</ParamField>
+<ParamField body="goal" type="string">Updated activity goal: `FOCUS`, `WORK`, `STUDY`, or `CASUAL`.</ParamField>
+<ParamField body="visibility" type="string">Updated visibility: `public` or `private`.</ParamField>
+<ParamField body="status" type="string">Updated challenge status: `active`, `paused`, or `completed`.</ParamField>
+<ParamField body="ends_at" type="string | null">Updated expiry timestamp, or `null` to remove the end date.</ParamField>
+<ParamField body="pause_threshold" type="number | null">Updated pause limit, or `null` to remove the limit.</ParamField>
+
+#### Response — `200 OK`
+
+Returns the updated challenge object.
+
+#### Example
+
+```bash
+curl -X PATCH "https://api.klariti.com/api/challenges/550e8400-e29b-41d4-a716-446655440000" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "60 days of focus", "pause_threshold": null}'
+```
+
+---
+
+### DELETE /api/challenges/:challengeId
+
+Permanently delete a challenge and all associated participation records. **Creator only.**
+
+**Auth:** Bearer token required.
+
+#### Path parameters
+
+<ParamField path="challengeId" type="string" required>
+  UUID of the challenge to delete.
+</ParamField>
+
+#### Response — `200 OK`
+
+```json
+{ "success": true }
+```
+
+#### Example
+
+```bash
+curl -X DELETE "https://api.klariti.com/api/challenges/550e8400-e29b-41d4-a716-446655440000" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+## Challenge Participation
+
+### POST /api/challenges/:challengeId/join
+
+Join a challenge. Public challenges can be joined directly. Private challenges require a pending invitation — the invitation is automatically accepted on join.
+
+**Auth:** Bearer token required.
+
+#### Path parameters
+
+<ParamField path="challengeId" type="string" required>
+  UUID of the challenge to join.
+</ParamField>
+
+#### Response — `200 OK`
+
+<ResponseField name="challenge_id" type="string" required>UUID of the challenge.</ResponseField>
+<ResponseField name="user_id" type="string" required>ID of the joining user.</ResponseField>
+<ResponseField name="status" type="string" required>Initial participation status (`active`).</ResponseField>
+<ResponseField name="joined_at" type="string | null" required>ISO 8601 join timestamp.</ResponseField>
+<ResponseField name="created_at" type="string | null" required>ISO 8601 record creation timestamp.</ResponseField>
+
+#### Example
+
+```bash
+curl -X POST "https://api.klariti.com/api/challenges/550e8400-e29b-41d4-a716-446655440000/join" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+### POST /api/challenges/:challengeId/leave
+
+Leave a challenge. The user's participation record is removed.
+
+**Auth:** Bearer token required.
+
+#### Path parameters
+
+<ParamField path="challengeId" type="string" required>
+  UUID of the challenge to leave.
+</ParamField>
+
+#### Response — `200 OK`
+
+```json
+{ "success": true }
+```
+
+#### Example
+
+```bash
+curl -X POST "https://api.klariti.com/api/challenges/550e8400-e29b-41d4-a716-446655440000/leave" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+### GET /api/challenges/:challengeId/participants
+
+List all participants of an accessible challenge. The authenticated user must be the creator or a participant.
+
+**Auth:** Bearer token required.
+
+#### Path parameters
+
+<ParamField path="challengeId" type="string" required>
+  UUID of the challenge.
+</ParamField>
+
+#### Response — `200 OK`
+
+Returns an array of participant objects.
+
+<ResponseField name="challenge_id" type="string" required>UUID of the challenge.</ResponseField>
+<ResponseField name="user_id" type="string" required>Participant's user ID.</ResponseField>
+<ResponseField name="name" type="string" required>Participant's display name.</ResponseField>
+<ResponseField name="image" type="string | null">Participant's avatar URL.</ResponseField>
+<ResponseField name="status" type="string" required>Participation status: `active`, `paused`, or `completed`.</ResponseField>
+<ResponseField name="joined_at" type="string | null" required>ISO 8601 join timestamp.</ResponseField>
+<ResponseField name="created_at" type="string | null" required>ISO 8601 record creation timestamp.</ResponseField>
+
+#### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/challenges/550e8400-e29b-41d4-a716-446655440000/participants" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+### PATCH /api/challenges/:challengeId/status
+
+Pause or resume the authenticated user's own participation in a challenge.
+
+<Warning>
+  This endpoint only accepts `"active"` or `"paused"`. Sending `"completed"` will be rejected. Completion is managed server-side.
+</Warning>
+
+**Auth:** Bearer token required.
+
+#### Path parameters
+
+<ParamField path="challengeId" type="string" required>
+  UUID of the challenge.
+</ParamField>
+
+#### Request body
+
+<ParamField body="status" type="string" required>
+  New participation status. Must be `"active"` or `"paused"`.
+</ParamField>
+
+#### Response — `200 OK`
+
+Returns the updated participation record (same shape as `POST /api/challenges/:challengeId/join`).
+
+#### Example
+
+```bash
+curl -X PATCH "https://api.klariti.com/api/challenges/550e8400-e29b-41d4-a716-446655440000/status" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "paused"}'
+```
+
+---
+
+## Challenge Invitations
+
+### POST /api/challenges/:challengeId/invitations
+
+Invite a friend to a challenge. **Creator only.** The invitee must be a friend of the creator.
+
+**Auth:** Bearer token required.
+
+#### Path parameters
+
+<ParamField path="challengeId" type="string" required>
+  UUID of the challenge.
+</ParamField>
+
+#### Request body
+
+<ParamField body="user_id" type="string" required>
+  User ID of the friend to invite.
+</ParamField>
+
+#### Response — `200 OK`
+
+<ResponseField name="id" type="string" required>UUID of the invitation record.</ResponseField>
+<ResponseField name="challenge_id" type="string" required>UUID of the challenge.</ResponseField>
+<ResponseField name="from_id" type="string" required>User ID of the inviter (the creator).</ResponseField>
+<ResponseField name="to_id" type="string" required>User ID of the invitee.</ResponseField>
+<ResponseField name="status" type="string" required>Initial invitation status (`pending`).</ResponseField>
+<ResponseField name="created_at" type="string | null" required>ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="updated_at" type="string | null" required>ISO 8601 last-updated timestamp.</ResponseField>
+
+#### Example
+
+```bash
+curl -X POST "https://api.klariti.com/api/challenges/550e8400-e29b-41d4-a716-446655440000/invitations" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "user_01j2k..."}'
+```
+
+---
+
+### GET /api/challenges/:challengeId/invitations
+
+List all invitations for a challenge. **Creator only.**
+
+**Auth:** Bearer token required.
+
+#### Path parameters
+
+<ParamField path="challengeId" type="string" required>
+  UUID of the challenge.
+</ParamField>
+
+#### Response — `200 OK`
+
+Returns an array of invitation objects (same shape as `POST .../invitations` response).
+
+#### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/challenges/550e8400-e29b-41d4-a716-446655440000/invitations" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+### GET /api/users/me/challenges/invitations
+
+List all **pending** challenge invitations addressed to the authenticated user.
+
+**Auth:** Bearer token required.
+
+#### Response — `200 OK`
+
+Returns an array of invitation-with-details objects.
+
+<ResponseField name="id" type="string" required>Invitation UUID.</ResponseField>
+<ResponseField name="challenge_id" type="string" required>UUID of the challenge.</ResponseField>
+<ResponseField name="challenge_name" type="string" required>Name of the challenge.</ResponseField>
+<ResponseField name="from_id" type="string" required>User ID of the inviter.</ResponseField>
+<ResponseField name="from_name" type="string" required>Display name of the inviter.</ResponseField>
+<ResponseField name="to_id" type="string" required>User ID of the invitee (the authenticated user).</ResponseField>
+<ResponseField name="status" type="string" required>Invitation status.</ResponseField>
+<ResponseField name="created_at" type="string | null" required>ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="updated_at" type="string | null" required>ISO 8601 last-updated timestamp.</ResponseField>
+
+#### Example
+
+```bash
+curl -X GET "https://api.klariti.com/api/users/me/challenges/invitations" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+### POST /api/challenges/invitations/:invitationId/accept
+
+Accept a pending challenge invitation. The authenticated user must be the invitee. Accepting automatically joins the challenge.
+
+**Auth:** Bearer token required.
+
+#### Path parameters
+
+<ParamField path="invitationId" type="string" required>
+  UUID of the invitation to accept.
+</ParamField>
+
+#### Response — `200 OK`
+
+Returns the updated invitation object with `status: "accepted"`.
+
+#### Example
+
+```bash
+curl -X POST "https://api.klariti.com/api/challenges/invitations/inv-uuid.../accept" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+### POST /api/challenges/invitations/:invitationId/decline
+
+Decline a pending challenge invitation. The authenticated user must be the invitee.
+
+**Auth:** Bearer token required.
+
+#### Path parameters
+
+<ParamField path="invitationId" type="string" required>
+  UUID of the invitation to decline.
+</ParamField>
+
+#### Response — `200 OK`
+
+Returns the updated invitation object with `status: "declined"`.
+
+#### Example
+
+```bash
+curl -X POST "https://api.klariti.com/api/challenges/invitations/inv-uuid.../decline" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+### POST /api/challenges/invitations/:invitationId/cancel
+
+Cancel a sent invitation. The authenticated user must be the original inviter (creator).
+
+**Auth:** Bearer token required.
+
+#### Path parameters
+
+<ParamField path="invitationId" type="string" required>
+  UUID of the invitation to cancel.
+</ParamField>
+
+#### Response — `200 OK`
+
+Returns the updated invitation object with `status: "withdrawn"`.
+
+#### Example
+
+```bash
+curl -X POST "https://api.klariti.com/api/challenges/invitations/inv-uuid.../cancel" \
+  -H "Authorization: Bearer <token>"
+```

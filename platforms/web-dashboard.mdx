@@ -1,0 +1,109 @@
+---
+title: "Web Dashboard: Manage Intents, Challenges & Rules"
+sidebarTitle: "Web Dashboard"
+description: "The Klariti web dashboard is a Next.js app for managing intents, challenges, friends, and Gray Engine rules from any desktop browser."
+---
+
+The web dashboard (`@klariti/web`) is Klariti's primary management interface — a Next.js application deployed at `klariti.so` where users create and toggle intents, run challenges with friends, and configure Gray Engine rules. It is the hub that the browser extension and iOS app both orbit around.
+
+## Running locally
+
+Start the dashboard in development mode using the workspace filter:
+
+```bash
+pnpm --filter @klariti/web dev
+```
+
+The dashboard will start on its default Next.js port. The API server must also be running on port 4200 for auth and data calls to resolve:
+
+```bash
+pnpm --filter @klariti/api dev   # port 4200
+pnpm --filter @klariti/web dev   # dashboard
+```
+
+## Authentication
+
+Auth is powered by `@klariti/auth/client`. The `auth-client.ts` module creates a Better Auth client pointed at the API server and re-exports the helpers the rest of the app uses:
+
+```typescript
+import { createAuthClient } from "better-auth/react";
+
+export const authClient = createAuthClient({
+  baseURL: process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4200",
+});
+
+export const { signIn, signUp, signOut, useSession } = authClient;
+```
+
+The entire app is wrapped in `AuthProvider` (from `@/contexts/AuthContext`), which hydrates user state from a stored `access_token` on mount and exposes a `useAuth()` hook to all child components. Sign-in stores the bearer token in `localStorage`; sign-out clears it and calls the Better Auth server-side signout endpoint.
+
+<Note>
+  Email verification is required before a new account can sign in. `AuthProvider` does not auto-sign-in after `signUp` — the user must verify their email first.
+</Note>
+
+## API integration
+
+Data calls go through `@klariti/api/client`. The `api.ts` module creates a typed client with an `Authorization` header that reads the stored token at call time:
+
+```typescript
+import { createApiClient } from "@klariti/api/client";
+import API_BASE from "@/lib/configs/api";
+
+export const api = createApiClient({
+  baseUrl: API_BASE,
+  baseHeaders: {
+    Authorization: () => {
+      if (typeof window === "undefined") return "";
+      const token = localStorage.getItem("access_token");
+      return token ? `Bearer ${token}` : "";
+    },
+  },
+});
+```
+
+This client is imported directly in page and component files — no context provider needed for API calls.
+
+## Pages and routes
+
+<CardGroup cols={2}>
+  <Card title="Home — /" icon="house">
+    The public landing page. Includes the `VideoHero` and `EmbedSection` components along with the top-level `Navbar` and `Footer`.
+  </Card>
+  <Card title="Auth — /auth" icon="lock">
+    Sign-in and sign-up forms. Routes unauthenticated users here from protected pages via `ProtectedRoute`.
+  </Card>
+  <Card title="Dashboard — /dashboard" icon="layout-dashboard">
+    The main authenticated view for managing intents, challenges, and friends. Requires a valid session.
+  </Card>
+  <Card title="Lock — /lock" icon="shield">
+    Focus lock view. Displayed when a session is actively locked.
+  </Card>
+  <Card title="Manifesto — /manifesto" icon="scroll">
+    Klariti's public manifesto page explaining the philosophy behind the platform.
+  </Card>
+  <Card title="Tag — /tag/[message]" icon="tag">
+    NFC tag resolution page. Receives the signed message from a tapped Klariti tag URL, calls `GET /api/tag/:message`, and shows the tag's name, owner, and status.
+  </Card>
+</CardGroup>
+
+## Key components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| `Navbar` | `src/components/Navbar.tsx` | Top navigation bar, present on all pages |
+| `Footer` | `src/components/Footer.tsx` | Site footer, present on all pages |
+| `VideoHero` | `src/components/VideoHero.tsx` | Hero section with video background on the landing page |
+| `EmbedSection` | `src/components/EmbedSection.tsx` | Embedded content section on the landing page |
+| `ProtectedRoute` | `src/components/ProtectedRoute.tsx` | Wrapper that redirects unauthenticated users to `/auth` |
+
+## Deployment
+
+The dashboard is deployed on Vercel. The `vercel.json` in `apps/web/` enables clean URLs:
+
+```json
+{
+  "cleanUrls": true
+}
+```
+
+The `NEXT_PUBLIC_API_URL` environment variable must be set in the Vercel project to the public API URL so that the auth client and API client resolve correctly in production.

@@ -1,0 +1,151 @@
+---
+title: "Gray Engine: Klariti's Content Mediation Layer"
+sidebarTitle: "Gray Engine"
+description: "How the Gray Engine uses your active goal to classify URLs and modify web pages — hiding distractions, blurring low-value sections, and surfacing what matters."
+---
+
+The Gray Engine is Klariti's content mediation layer. Given your active goal and the rules attached to it, the engine decides how to modify any webpage you visit: hiding distracting modules, blurring low-value sections, and highlighting content that serves what you're actually trying to do. It doesn't replace platform recommendation algorithms or run heavy AI analysis on every page — it operates predictably, explains what it's doing, and lets you reverse any modification at any time.
+
+## How it works
+
+The engine operates in two steps:
+
+1. **Classify** — the URL of the current page is sent to the classification API, which returns a `category` describing the type of content.
+2. **Mediate** — given the `category` and the user's active `goal`, the engine applies the appropriate set of page modifications in the browser extension.
+
+This separation keeps the classification logic centralized on the server while the page-modification logic lives in the extension, close to the DOM.
+
+## URL classification
+
+The classification endpoint accepts a URL and returns a category string:
+
+```http
+POST /api/classify/
+Content-Type: application/json
+
+{
+  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+}
+```
+
+**Response:**
+
+```json
+{
+  "category": "Music"
+}
+```
+
+The `category` value maps to a human-readable content label — for YouTube, this corresponds directly to the YouTube Data API video category for that video (e.g. `"Education"`, `"Gaming"`, `"Science & Technology"`).
+
+<Tip>
+  The classifier currently handles YouTube URLs only (`youtube.com/watch?v=` and `youtu.be/` formats). For all other URLs, the endpoint returns `null` for `category`. Non-YouTube page mediation relies on rule sets rather than content classification.
+</Tip>
+
+## Goals that drive mediation
+
+The active `goal` on the current challenge or intent determines which mediation rules apply. The four supported goals represent different modes of focus:
+
+| Goal | Focus mode |
+|---|---|
+| `FOCUS` | Maximum distraction reduction |
+| `WORK` | Professional task context |
+| `STUDY` | Reading and research mode |
+| `CASUAL` | Light mediation, lower friction |
+
+A stricter goal like `FOCUS` will apply more aggressive modifications to a page categorised as `Entertainment` than `CASUAL` would. The exact rule-to-category mapping is defined per-intent.
+
+## The browser extension
+
+The Gray Engine runs inside the Klariti MV3 browser extension. The extension background script handles two message types from content scripts and the web dashboard:
+
+```typescript
+// From apps/extension/entrypoints/background.ts
+
+const API_URL = "http://localhost:4200";
+
+/** Classify a URL via the API */
+async function classifyUrl(url: string): Promise<string | null> {
+  try {
+    const res = await apiFetch("/api/classify/", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) {
+      console.warn("[klariti] classify failed:", res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    console.log("[klariti] classify result:", url, data);
+    return data?.category ?? null;
+  } catch (err) {
+    console.error("[klariti] classify error:", err);
+    return null;
+  }
+}
+
+/** Get the currently active intent's goal */
+async function getActiveGoal(): Promise<string | null> {
+  try {
+    const res = await apiFetch("/api/users/me/challenges");
+    if (!res.ok) return null;
+    const intents: Intent[] = await res.json();
+    const active = intents.find(
+      (i) => i.status === "active" && i.participant_status === "active"
+    );
+    return active?.goal ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export default defineBackground(() => {
+  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "CLASSIFY_URL" && message.url) {
+      classifyUrl(message.url).then((category) => sendResponse({ category }));
+      return true; // keep channel open for async response
+    }
+
+    if (message?.type === "GET_ACTIVE_GOAL") {
+      getActiveGoal().then((goal) => sendResponse({ goal }));
+      return true;
+    }
+  });
+});
+```
+
+### Message types
+
+| Message type | Payload | Response |
+|---|---|---|
+| `CLASSIFY_URL` | `{ url: string }` | `{ category: string \| null }` |
+| `GET_ACTIVE_GOAL` | — | `{ goal: string \| null }` |
+
+The background script keeps the message channel open (`return true`) for both handlers since the API calls are asynchronous. Content scripts send these messages and receive the response to decide which DOM modifications to apply.
+
+## Design principles
+
+<CardGroup cols={2}>
+  <Card title="Predictable" icon="check">
+    The same URL and goal always produce the same classification and the same rule set. No black-box decisions.
+  </Card>
+  <Card title="Explainable" icon="magnifying-glass">
+    Category labels are human-readable. You can see why a section was hidden or blurred.
+  </Card>
+  <Card title="Reversible" icon="arrow-rotate-left">
+    Any page modification can be undone. Turning off an intent restores the page immediately.
+  </Card>
+  <Card title="Lightweight" icon="feather">
+    No always-on AI analysis. Classification only runs for pages in supported categories and only when an intent is active.
+  </Card>
+</CardGroup>
+
+## Out of scope
+
+<Warning>
+  The following are explicitly outside the Gray Engine's current design:
+
+  - **Mobile browser support** — the extension runs on desktop browsers only
+  - **Replacing platform algorithms** — the engine modifies page presentation, not recommendation feeds
+  - **Always-on heavy AI analysis** — classification is on-demand and limited to supported URL types
+</Warning>

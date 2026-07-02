@@ -1,47 +1,172 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Quickstart: Run Klariti Locally in Minutes"
+sidebarTitle: "Quickstart"
+description: "Install dependencies, configure your environment variables, run database migrations, and boot the full Klariti monorepo dev server from a single command."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+This page walks you through getting a local Klariti development environment running from scratch. By the end you'll have the API server live on port 4200, the web dashboard running, and interactive API docs available at `GET /docs`.
 
 ## Prerequisites
 
-Before you begin, you must have:
+- **Node.js** `>=18` — required by the `engines` field in `package.json`
+- **pnpm** `10.25.0` — the repo enforces pnpm via `preinstall` hook; other package managers are rejected
+- **PostgreSQL** — a local instance or a hosted database. [Neon](https://neon.tech) is recommended for quick setup
 
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
+<Tip>
+  Neon's free tier provisions a serverless Postgres database in under a minute and gives you a `DATABASE_URL` connection string you can paste straight into your `.env`.
+</Tip>
 
-## Get started
+## Installation
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
-
+  <Step title="Clone the repository">
     ```bash
-    npm install your-package
+    git clone https://github.com/klariti-os/klariti-os.git
+    cd klariti-os
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Install dependencies">
+    From the monorepo root, pnpm installs all workspaces (`apps/*`, `packages/*`, `api`) in one pass.
 
     ```bash
-    your-cli init
+    pnpm install
     ```
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Copy the example environment file">
+    ```bash
+    cp .env.example .env
+    ```
+
+    Then open `.env` and fill in each value. The next section documents every variable.
+  </Step>
+
+  <Step title="Run database migrations">
+    Migrations are managed by Drizzle ORM via the `@klariti/database` package.
 
     ```bash
-    your-cli start
+    pnpm db:migrate
     ```
+  </Step>
+
+  <Step title="Start the dev server">
+    Turborepo orchestrates all workspaces in parallel with live reload.
+
+    ```bash
+    pnpm dev
+    ```
+
+    To start individual apps instead, see [Running individual apps](#running-individual-apps) below.
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## Environment variables
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+Every variable read by the API is listed here. Fill these in your `.env` before running migrations or starting the server.
+
+### Database
+
+<ParamField body="DATABASE_URL" type="string" required>
+  PostgreSQL connection string. Format: `postgresql://<username>:<password>@<host>:5432/<database>`.
+  If you're using Neon, copy the connection string directly from the Neon dashboard.
+</ParamField>
+
+### Server
+
+<ParamField body="PORT" type="number" default="4200">
+  The port the Fastify API server binds to. Matches the default used by the Vercel deployment preset and the
+  `pnpm --filter @klariti/api dev` filter command.
+</ParamField>
+
+<ParamField body="APP_URL" type="string" default="http://localhost:4200">
+  The public URL of the API server. Must match `BETTER_AUTH_URL` exactly — both values are used by Better Auth to
+  construct callback URLs and verify origin.
+</ParamField>
+
+### Auth
+
+<ParamField body="BETTER_AUTH_SECRET" type="string" required>
+  A random secret used to sign and verify session tokens. Generate one with `openssl rand -hex 32` or any
+  equivalent. Never commit this value to source control.
+</ParamField>
+
+<ParamField body="BETTER_AUTH_URL" type="string" default="http://localhost:4200">
+  Must match `APP_URL`. Better Auth uses this to build internal redirect and callback URLs. A mismatch between
+  `APP_URL` and `BETTER_AUTH_URL` will cause auth flows to fail silently.
+</ParamField>
+
+<ParamField body="CORS_ORIGINS" type="string" default="http://localhost:4200,http://localhost:3000,http://localhost:3001">
+  Comma-separated list of allowed CORS origins. Include every origin your web dashboard and extension will
+  run on in development, e.g. `http://localhost:3000,http://localhost:3001`.
+</ParamField>
+
+### Gray Engine
+
+<ParamField body="YOUTUBE_API_KEY" type="string">
+  YouTube Data API v3 key used by the Gray Engine's URL classifier to retrieve metadata about YouTube URLs
+  for content categorisation. Leave blank to skip YouTube classification.
+</ParamField>
+
+### Ktag issuance
+
+<ParamField body="KTAG_BASE_URL" type="string" default="https://klariti.so">
+  Base URL written into NFC tag payloads. Tags are provisioned with the URL
+  `<KTAG_BASE_URL>/tag/v<sig_version>.<tag_id>.<signature>`. Change this only if you are running a
+  self-hosted Klariti landing page.
+</ParamField>
+
+<ParamField body="KTAG_SIG_VERSION" type="number" default="1">
+  Signature scheme version. Embedded in both the tag payload and the signed message
+  (`v<sig_version>|<tag_id>|<uid_hash>`) so that the iOS client can select the correct verification key.
+</ParamField>
+
+<ParamField body="KTAG_SIGNING_PRIVATE_KEY" type="string" required>
+  PEM or base64-encoded PEM for the server-side Ed25519 private key. Used to sign tag issuance records.
+  Generate a key pair with `openssl genpkey -algorithm ed25519`.
+</ParamField>
+
+<ParamField body="KTAG_SIGNING_PUBLIC_KEY" type="string" required>
+  PEM or base64-encoded PEM for the corresponding Ed25519 public key. Bundled into the iOS app for offline
+  tag verification via Core NFC.
+</ParamField>
+
+<Warning>
+  `KTAG_SIGNING_PRIVATE_KEY` and `KTAG_SIGNING_PRIVATE_KEY` must be a matched Ed25519 key pair.
+  Mismatched keys will cause all tag issuance and iOS verification to fail at runtime.
+</Warning>
+
+## Running individual apps
+
+Use pnpm's `--filter` flag to start or test a single workspace:
+
+<CodeGroup>
+```bash API server
+# Starts the Fastify API on port 4200 with tsx watch
+pnpm --filter @klariti/api dev
+```
+
+```bash Web dashboard
+# Starts the Next.js web dashboard
+pnpm --filter @klariti/web dev
+```
+
+```bash API tests
+# Runs Vitest integration tests against the live database
+pnpm --filter @klariti/api test
+```
+</CodeGroup>
+
+## Verify the server is running
+
+Once `pnpm dev` (or the API filter) is running, open the following in your browser:
+
+| URL | What you'll see |
+|---|---|
+| `http://localhost:4200/` | `{ "message": "hello from Klariti" }` |
+| `http://localhost:4200/docs` | Interactive Swagger UI for all API routes |
+
+<Tip>
+  The `/docs` route is served by the Swagger plugin registered in `api/src/server.ts`. It reflects the
+  live ts-rest contracts for every domain module, so it stays in sync with the code automatically.
 </Tip>
