@@ -1,5 +1,5 @@
 ---
-title: "Ktags: Physical NFC Tags for iOS Focus Sessions"
+title: "Ktags: Klariti's Physical NFC Focus Tags Explained"
 sidebarTitle: "Ktags"
 description: "How Klariti's physical NFC tags work — Ed25519-signed payloads, iOS focus session locking, tag types, and the issuance and ownership model."
 ---
@@ -95,7 +95,7 @@ The server then:
 2. Generates a new `tag_id` with the `kt_` prefix
 3. Signs `v<sig_version>|<tag_id>|<uid_hash>` with the server's Ed25519 private key
 4. Constructs the full payload URL: `https://klariti.so/tag/v<sig_version>.<tag_id>.<signature>`
-5. Generates a friendly two-word label (e.g. `silver-moth`)
+5. Generates a friendly two-word label (e.g. `Silver Moth`)
 6. Writes the complete record to the database
 
 The raw UID is never stored. Only the hash is persisted.

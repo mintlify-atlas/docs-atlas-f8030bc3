@@ -1,7 +1,7 @@
 ---
-title: "Friendship Data Models — Klariti API Reference"
+title: "Friendship Data Models — Klariti Friends API Guide"
 sidebarTitle: "Friendship"
-description: "Describes the Friendship, FriendRequest, and user relationship models returned by the Klariti friends API endpoints."
+description: "Describes the Friendship, FriendRequest, and user-with-relationship data models returned by the Klariti friends and user search APIs."
 ---
 
 Friend relationships in Klariti use a two-table model: a canonical `Friendship` row that persists across friend and unfriend cycles, and a `FriendRequest` row for every individual request that serves as a directional audit log. This separation means the re-add flow works cleanly — re-sending a request reactivates the existing friendship row rather than creating a duplicate.
@@ -69,7 +69,7 @@ A single directional friend request. Unlike the `Friendship` table, multiple req
   User ID of the recipient.
 </ResponseField>
 
-<ResponseField name="status" type='"pending" | "accepted" | "declined" | "withdrawn"' required>
+<ResponseField name="status" type='"pending" | "accepted" | "declined" | "cancelled" | "withdrawn"' required>
   Current state of the request.
 
   <Expandable title="Status values">
@@ -81,6 +81,9 @@ A single directional friend request. Unlike the `Friendship` table, multiple req
     </ResponseField>
     <ResponseField name="declined" type="string">
       The recipient explicitly declined the request.
+    </ResponseField>
+    <ResponseField name="cancelled" type="string">
+      The request was cancelled before it reached the recipient, typically by the system or an admin action.
     </ResponseField>
     <ResponseField name="withdrawn" type="string">
       The sender retracted the request before the recipient responded.
@@ -102,7 +105,7 @@ interface FriendRequest {
   id: string
   from_id: string
   to_id: string
-  status: "pending" | "accepted" | "declined" | "withdrawn"
+  status: "pending" | "accepted" | "declined" | "cancelled" | "withdrawn"
   created_at: string | null
   updated_at: string | null
 }

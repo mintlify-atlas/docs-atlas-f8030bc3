@@ -1,7 +1,7 @@
 ---
-title: "Friends: The Accountability Layer in Klariti"
+title: "Friends: Klariti's Two-Table Friend and Request Model"
 sidebarTitle: "Friends"
-description: "How Klariti's two-table friendship model works — request states, the re-add pattern, the privacy masking rule, and relationship state in user search results."
+description: "How Klariti's two-table friendship model works — request lifecycle, the re-add pattern, privacy masking, and relationship state in search results."
 ---
 
 Friends are the accountability layer in Klariti. You don't build a network — you add the small number of people you actually want to focus with. Shared challenges only create meaningful pressure when the group is real. The friendship system is designed to be low-friction for genuine connections while handling edge cases like re-adds and request withdrawals cleanly and without leaking social information.
@@ -27,7 +27,7 @@ interface FriendRequest {
   id: string
   from_id: string
   to_id: string
-  status: "pending" | "accepted" | "declined" | "withdrawn"
+  status: "pending" | "accepted" | "declined" | "cancelled" | "withdrawn"
   created_at: Date
   updated_at: Date
 }
@@ -51,13 +51,13 @@ This means the pair always has exactly one `Friendship` row between them, with a
 
 `FriendRequest.status` tracks the state of each individual request:
 
-| Status | Description |
-|---|---|
-| `pending` | Sent, awaiting a response from the recipient |
-| `accepted` | Recipient accepted; friendship was created or reactivated |
-| `declined` | Recipient declined the request |
-| `cancelled` | Sender cancelled before the recipient responded |
-| `withdrawn` | Sender explicitly withdrew the request |
+| Status | Who sets it | Description |
+|---|---|---|
+| `pending` | System | Sent, awaiting a response from the recipient |
+| `accepted` | Recipient | Recipient accepted; friendship was created or reactivated |
+| `declined` | Recipient | Recipient declined the request |
+| `cancelled` | Sender | Sender cancelled before the recipient responded |
+| `withdrawn` | Sender | Sender explicitly withdrew the request |
 
 ## Friendship states
 
@@ -72,7 +72,7 @@ The friendship row is never deleted — only its status changes. This is the sof
 
 ## Withdrawal behaviour
 
-A sender can withdraw a pending request before the recipient responds. Withdrawn requests disappear from the recipient's view immediately — `GET /requests/received` filters to `status = 'pending'` only, so withdrawn requests are never shown to the recipient.
+A sender can withdraw a pending request before the recipient responds. Withdrawn requests disappear from the recipient's view immediately — `GET /api/me/friends/requests/received` filters to `status = 'pending'` only, so withdrawn requests are never shown to the recipient.
 
 The sender can re-send a request after withdrawing because the duplicate check only blocks an actively `pending` request between the same pair. A `withdrawn` request in the log does not count as a blocker.
 
@@ -115,21 +115,21 @@ This allows the UI to render the appropriate action (add friend, cancel request,
 
 <CardGroup cols={2}>
   <Card title="Friends" icon="user-group">
-    `GET /api/users/me/friends` — your current friend list
+    `GET /api/me/friends` — your current friend list
 
-    `DELETE /api/friends/:friendshipId` — remove a friend (soft-delete)
+    `DELETE /api/me/friends/:friendshipId` — remove a friend (soft-delete)
   </Card>
   <Card title="Friend Requests" icon="envelope">
-    `POST /api/friends/requests` — send a request
+    `POST /api/me/friends/requests` — send a request
 
-    `GET /api/friends/requests/received` — pending received requests
+    `GET /api/me/friends/requests/received` — pending received requests
 
-    `GET /api/friends/requests/sent` — your sent requests (masked)
+    `GET /api/me/friends/requests/sent` — your sent requests (masked)
   </Card>
   <Card title="Request Actions" icon="check">
-    `POST /api/friends/requests/:requestId` — accept or decline
+    `PATCH /api/me/friends/requests/:requestId` — accept or decline
 
-    `DELETE /api/friends/requests/:requestId` — withdraw a sent request
+    `DELETE /api/me/friends/requests/:requestId` — withdraw a sent request
   </Card>
   <Card title="User Search" icon="magnifying-glass">
     `GET /api/users/search?q=...` — search users by name or email; results include `relationship` field

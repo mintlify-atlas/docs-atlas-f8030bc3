@@ -1,7 +1,7 @@
 ---
-title: "Klariti Architecture: Monorepo, API, and Auth"
+title: "Klariti Architecture: Monorepo, API Modules, and Auth"
 sidebarTitle: "Architecture"
-description: "How the Klariti monorepo is structured across Turborepo workspaces, the domain-module API layout, auth package split exports, and Vercel deployment constraints."
+description: "Turborepo workspace layout, domain-module API structure, auth package split exports, and critical Vercel deployment constraints for the Klariti monorepo."
 ---
 
 Klariti is a Turborepo monorepo with pnpm workspaces. This page covers the top-level directory layout, how the Fastify API is organised into domain modules, how the auth package splits server and client exports, and what you need to know to deploy the API to Vercel.
@@ -10,7 +10,7 @@ Klariti is a Turborepo monorepo with pnpm workspaces. This page covers the top-l
 
 The workspace root defines three workspace globs in `pnpm-workspace.yaml`: `apps/*`, `packages/*`, and `api`. All workspace packages use the `@klariti/*` prefix, with the sole exception of `@repo/typescript-config`.
 
-```
+```txt
 klariti-os/
 ├── apps/
 │   ├── web/          # Next.js dashboard            (@klariti/web)
@@ -54,7 +54,7 @@ The Fastify server lives in `api/src/server.ts`. On startup it registers plugins
 
 ### Plugin registration order
 
-```
+```txt
 formbody  →  swagger  →  cors  →  auth  →  authorization  →  routes
 ```
 
@@ -64,7 +64,7 @@ Auth is provided by Better Auth with a Drizzle adapter. The bearer plugin is als
 
 The API is organised by domain rather than by technical layer. Each domain module under `api/src/modules/<domain>/` owns all of its related concerns:
 
-```
+```txt
 api/src/modules/ktags/
   contract.ts     # ts-rest contract slice for this domain
   schemas.ts      # Zod schemas for request/response validation

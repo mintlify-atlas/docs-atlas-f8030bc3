@@ -1,5 +1,5 @@
 ---
-title: "Challenge Data Models — Klariti API Reference"
+title: "Klariti Challenge, Participant, and Invitation Models"
 sidebarTitle: "Challenge"
 description: "Describes the Challenge, ChallengeParticipant, ChallengeWithStatus, and ChallengeInvitation data models returned by the Klariti API."
 ---
@@ -91,6 +91,14 @@ Represents one user's membership record within a challenge. The composite primar
   ISO 8601 datetime. Server-stamped when the participant row is inserted.
 </ResponseField>
 
+<ResponseField name="name" type="string" required>
+  Display name of the participating user. Joined from the user record at query time.
+</ResponseField>
+
+<ResponseField name="image" type="string | null">
+  Avatar URL of the participating user. `null` if the user has no avatar set.
+</ResponseField>
+
 ```ts
 interface ChallengeParticipant {
   challenge_id: string
@@ -98,6 +106,8 @@ interface ChallengeParticipant {
   status: "active" | "paused" | "completed"
   joined_at: string | null
   created_at: string | null
+  name: string
+  image: string | null
 }
 ```
 

@@ -1,5 +1,5 @@
 ---
-title: "Web Dashboard: Manage Intents, Challenges & Rules"
+title: "Klariti Web Dashboard: Intents, Challenges & Rules"
 sidebarTitle: "Web Dashboard"
 description: "The Klariti web dashboard is a Next.js app for managing intents, challenges, friends, and Gray Engine rules from any desktop browser."
 ---
@@ -67,7 +67,7 @@ This client is imported directly in page and component files — no context prov
 
 <CardGroup cols={2}>
   <Card title="Home — /" icon="house">
-    The public landing page. Includes the `VideoHero` and `EmbedSection` components along with the top-level `Navbar` and `Footer`.
+    The public landing page. Renders a full-screen image hero and a feature gallery section. The top-level `Navbar` and `Footer` are injected by the root layout.
   </Card>
   <Card title="Auth — /auth" icon="lock">
     Sign-in and sign-up forms. Routes unauthenticated users here from protected pages via `ProtectedRoute`.
@@ -84,6 +84,9 @@ This client is imported directly in page and component files — no context prov
   <Card title="Tag — /tag/[message]" icon="tag">
     NFC tag resolution page. Receives the signed message from a tapped Klariti tag URL, calls `GET /api/tag/:message`, and shows the tag's name, owner, and status.
   </Card>
+  <Card title="Demo — /demo" icon="play">
+    Demo page. Renders an `EmbedSection` with the Klariti pitch deck embed and a link to view it in Canva.
+  </Card>
 </CardGroup>
 
 ## Key components
@@ -92,8 +95,8 @@ This client is imported directly in page and component files — no context prov
 |-----------|----------|---------|
 | `Navbar` | `src/components/Navbar.tsx` | Top navigation bar, present on all pages |
 | `Footer` | `src/components/Footer.tsx` | Site footer, present on all pages |
-| `VideoHero` | `src/components/VideoHero.tsx` | Hero section with video background on the landing page |
-| `EmbedSection` | `src/components/EmbedSection.tsx` | Embedded content section on the landing page |
+| `VideoHero` | `src/components/VideoHero.tsx` | Reusable hero section with Vimeo or mp4 video background |
+| `EmbedSection` | `src/components/EmbedSection.tsx` | Embedded iframe section used on the demo page |
 | `ProtectedRoute` | `src/components/ProtectedRoute.tsx` | Wrapper that redirects unauthenticated users to `/auth` |
 
 ## Deployment
